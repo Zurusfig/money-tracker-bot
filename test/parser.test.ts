@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseAmount, parseText } from "@/lib/parser";
+import { BUILTIN_ACCOUNTS } from "@/lib/accounts";
+import { parseAmount, parseText as parse } from "@/lib/parser";
+
+const parseText = (t: string) => parse(t, BUILTIN_ACCOUNTS);
 
 describe("parseText", () => {
   it("expense with default account", () => {

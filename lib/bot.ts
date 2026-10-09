@@ -1,12 +1,12 @@
-import { ACCOUNTS, DEFAULT_ACCOUNT, accountByCode, accountFromLoose, codeOf, type AccountName } from "./accounts";
+import type { AccountName, Accounts } from "./accounts";
 import type { Ai } from "./gemini";
 import { text, type LineApi, type LineMessage, type QuickItem } from "./line";
 import type { Notifier } from "./discord";
-import { HELP_TEXT, parseText, type Command } from "./parser";
+import { helpText, parseText, type Command } from "./parser";
 import type { Cell, SheetsApi } from "./sheets";
 import {
   ensureBotTabs, lastLiveWrite, log, matchCategoryName, matchOwnAccount, matchRule,
-  readLog, readOwnAccounts, readRules, saveRule,
+  readAccounts, readLog, readOwnAccounts, readRules, saveRule,
 } from "./state";
 import { bkkToday, isoDate, parseIso, quarterTabName, type Ymd } from "./time";
 import {
@@ -19,6 +19,8 @@ export const AMOUNT_MIN_CONFIDENCE = 0.9;
 export const FIELD_MIN_CONFIDENCE = 0.6;
 
 export type Deps = { sheets: SheetsApi; line: LineApi; ai: Ai; notify: Notifier; now?: () => Date };
+// Per-event context: deps + accounts from _Config
+export type Ctx = Deps & { acc: Accounts };
 
 export type LineEvent = {
   type: string;
@@ -43,7 +45,7 @@ export function summary(p: Pick<ParsedRow, "type" | "category" | "description" |
     const amt = fmt(from?.[1] ?? to?.[1] ?? 0);
     return [`${amt} ${from?.[0] ?? "?"} → ${to?.[0] ?? "?"}`, p.description].filter(Boolean).join(" · ");
   }
-  const [acct, amt] = entries[0] ?? [DEFAULT_ACCOUNT, 0];
+  const [acct, amt] = entries[0] ?? ["?", 0];
   const sign = amt > 0 ? "+" : "";
   const label = p.type === "Income" ? "Income" : p.category || "(no category)";
   return [`${sign}${fmt(amt)} ${label}`, acct, p.description].filter(Boolean).join(" · ");
@@ -69,8 +71,8 @@ function categoryButtons(tab: string, id: string, categories: string[]): QuickIt
   ];
 }
 
-function accountButtons(tab: string, id: string): QuickItem[] {
-  return ACCOUNTS.map((a) => ({ label: a.name, data: pb({ a: "acct", t: tab, id, v: a.code }) }));
+function accountButtons(acc: Accounts, tab: string, id: string): QuickItem[] {
+  return acc.list.map((a) => ({ label: a.name, data: pb({ a: "acct", t: tab, id, v: a.code }) }));
 }
 
 // ---------- setup ----------
@@ -106,9 +108,10 @@ export async function handleEvent(d: Deps, ev: LineEvent, ownerId: string): Prom
   let reply: LineMessage[];
   try {
     await ensureSetup(d);
-    if (ev.type === "message" && ev.message?.type === "text") reply = await onText(d, ev.message.text ?? "", ev.message.id);
-    else if (ev.type === "message" && ev.message?.type === "image") reply = await onImage(d, ev.message.id);
-    else if (ev.type === "postback" && ev.postback) reply = await onPostback(d, ev.postback.data);
+    const c: Ctx = { ...d, acc: await readAccounts(d.sheets) };
+    if (ev.type === "message" && ev.message?.type === "text") reply = await onText(c, ev.message.text ?? "", ev.message.id);
+    else if (ev.type === "message" && ev.message?.type === "image") reply = await onImage(c, ev.message.id);
+    else if (ev.type === "postback" && ev.postback) reply = await onPostback(c, ev.postback.data);
     else return;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -130,17 +133,17 @@ export async function reportError(d: Deps, where: string, msg: string) {
 
 // ---------- text ----------
 
-async function onText(d: Deps, raw: string, messageId: string): Promise<LineMessage[]> {
-  const cmd = parseText(raw);
+async function onText(d: Ctx, raw: string, messageId: string): Promise<LineMessage[]> {
+  const cmd = parseText(raw, d.acc);
   if (!cmd) return [text("Didn't get that. Try 65 lunch, or send help for all commands.", [{ label: "help", text: "help" }])];
   return runCommand(d, cmd, `L${messageId}`);
 }
 
-export async function runCommand(d: Deps, cmd: Command, id: string): Promise<LineMessage[]> {
+export async function runCommand(d: Ctx, cmd: Command, id: string): Promise<LineMessage[]> {
   const today = bkkToday(now(d));
   switch (cmd.kind) {
     case "help":
-      return [text(HELP_TEXT)];
+      return [text(helpText(d.acc))];
     case "entry":
       return cmd.sign === "-" ? expense(d, cmd, id, today) : plus(d, cmd, id, today);
     case "transfer":
@@ -157,14 +160,14 @@ export async function runCommand(d: Deps, cmd: Command, id: string): Promise<Lin
   }
 }
 
-async function categoriesFor(d: Deps, date: Ymd): Promise<{ tab: string; categories: string[] }> {
-  const tab = await ensureQuarter(d.sheets, date);
+async function categoriesFor(d: Ctx, date: Ymd): Promise<{ tab: string; categories: string[] }> {
+  const tab = await ensureQuarter(d.sheets, date, d.acc);
   return { tab, categories: await readCategories(d.sheets, tab) };
 }
 
 type Resolved = { category: string; lowConfidence: boolean };
 
-async function resolveCategory(d: Deps, description: string, categories: string[], useAi: boolean): Promise<Resolved> {
+async function resolveCategory(d: Ctx, description: string, categories: string[], useAi: boolean): Promise<Resolved> {
   if (!description) return { category: "", lowConfidence: true };
   const rules = await readRules(d.sheets);
   const hit = matchRule(rules, description, categories) ?? matchCategoryName(description, categories);
@@ -179,32 +182,32 @@ async function resolveCategory(d: Deps, description: string, categories: string[
   return { category: "", lowConfidence: true };
 }
 
-async function expense(d: Deps, cmd: Extract<Command, { kind: "entry" }>, id: string, today: Ymd) {
+async function expense(d: Ctx, cmd: Extract<Command, { kind: "entry" }>, id: string, today: Ymd) {
   const { categories } = await categoriesFor(d, today);
   const r = await resolveCategory(d, cmd.description, categories, true);
   return commit(d, {
     date: today, type: "Expense", category: r.category, description: cmd.description,
-    amounts: { [cmd.account ?? DEFAULT_ACCOUNT]: -cmd.amount }, id,
+    amounts: { [cmd.account ?? d.acc.default.name]: -cmd.amount }, id,
   }, categories);
 }
 
 // "+134 food" is a refund only when the word is a known category; otherwise Income.
-async function plus(d: Deps, cmd: Extract<Command, { kind: "entry" }>, id: string, today: Ymd) {
+async function plus(d: Ctx, cmd: Extract<Command, { kind: "entry" }>, id: string, today: Ymd) {
   const { categories } = await categoriesFor(d, today);
   const r = await resolveCategory(d, cmd.description, categories, false);
-  const acct = cmd.account ?? DEFAULT_ACCOUNT;
+  const acct = cmd.account ?? d.acc.default.name;
   if (r.category) {
     return commit(d, { date: today, type: "Expense", category: r.category, description: cmd.description, amounts: { [acct]: cmd.amount }, id });
   }
   return commit(d, { date: today, type: "Income", category: "", description: cmd.description, amounts: { [acct]: cmd.amount }, id });
 }
 
-async function commit(d: Deps, e: Entry, categories?: string[]): Promise<LineMessage[]> {
+async function commit(d: Ctx, e: Entry, categories?: string[]): Promise<LineMessage[]> {
   return (await commitEntry(d, e, categories)).msgs;
 }
 
-async function commitEntry(d: Deps, e: Entry, categories?: string[]): Promise<{ msgs: LineMessage[]; duplicate: boolean }> {
-  const res = await writeEntry(d.sheets, e);
+async function commitEntry(d: Ctx, e: Entry, categories?: string[]): Promise<{ msgs: LineMessage[]; duplicate: boolean }> {
+  const res = await writeEntry(d.sheets, e, d.acc);
   if (res.duplicate) return { msgs: [text(`Already logged (${res.tab} row ${res.row}).`)], duplicate: true };
   await log(d.sheets, "write", res.tab, e.id, summary(e));
   const line = `✓ ${summary(e)}`;
@@ -216,29 +219,29 @@ async function commitEntry(d: Deps, e: Entry, categories?: string[]): Promise<{ 
   return { msgs: [text(line, rowButtons(res.tab, e.id, e.type))], duplicate: false };
 }
 
-async function bal(d: Deps, account: AccountName, actual: number, id: string, today: Ymd) {
-  const tab = await ensureQuarter(d.sheets, today);
-  const balances = await readBalances(d.sheets, tab);
+async function bal(d: Ctx, account: AccountName, actual: number, id: string, today: Ymd) {
+  const tab = await ensureQuarter(d.sheets, today, d.acc);
+  const balances = await readBalances(d.sheets, tab, d.acc);
   const sheet = balances.get(account);
   if (!sheet) throw new Error(`${tab}: no balance row for ${account}`);
   const gap = Math.round((actual - sheet.value) * 100) / 100;
   if (gap === 0) return [text(`${account} matches the sheet (${fmt(actual)}). Nothing logged.`)];
-  const category = account === "Rabbit" ? "Transportation" : UNTRACKED;
+  const category = d.acc.balCategory(account) || UNTRACKED;
   const res = await writeEntry(d.sheets, {
     date: today, type: "Expense", category, description: "bal check", amounts: { [account]: gap }, id,
-  });
+  }, d.acc);
   if (res.duplicate) return [text(`Already logged (${res.tab} row ${res.row}).`)];
   await log(d.sheets, "write", res.tab, id, `bal ${account} ${gap}`);
   const dir = gap < 0 ? "-" : "+";
   return [text(`${account} gap ${dir}${fmt(gap)} (sheet ${fmt(sheet.value)}, real ${fmt(actual)}). Logged as ${category}.`, rowButtons(res.tab, id))];
 }
 
-async function undo(d: Deps, cmdId: string) {
+async function undo(d: Ctx, cmdId: string) {
   const entries = await readLog(d.sheets);
   if (entries.some((e) => e.kind === "undo" && e.detail === cmdId)) return [text("Already undone.")];
   const last = lastLiveWrite(entries);
   if (!last) return [text("Nothing to undo.")];
-  const view = await readQuarter(d.sheets, last.tab);
+  const view = await readQuarter(d.sheets, last.tab, d.acc);
   const row = findRowById(view, last.id);
   await log(d.sheets, "undo", last.tab, last.id, cmdId);
   if (!row) return [text("Last bot row is already gone from the sheet.")];
@@ -247,7 +250,7 @@ async function undo(d: Deps, cmdId: string) {
   return [text(`Undone: ${p ? summary(p) : last.detail}`)];
 }
 
-async function noSpend(d: Deps, cmdId: string, today: Ymd) {
+async function noSpend(d: Ctx, cmdId: string, today: Ymd) {
   const date = isoDate(today);
   const entries = await readLog(d.sheets);
   if (entries.some((e) => e.kind === "nospend" && e.date === date)) return [text(`${date} is already a no-spend day.`)];
@@ -257,7 +260,7 @@ async function noSpend(d: Deps, cmdId: string, today: Ymd) {
 
 // ---------- postbacks ----------
 
-async function onPostback(d: Deps, data: string): Promise<LineMessage[]> {
+async function onPostback(d: Ctx, data: string): Promise<LineMessage[]> {
   const p = new URLSearchParams(data);
   const a = p.get("a");
   if (a === "slip") return slipConfirmed(d, p);
@@ -265,14 +268,14 @@ async function onPostback(d: Deps, data: string): Promise<LineMessage[]> {
 
   const tab = p.get("t") ?? "";
   const id = p.get("id") ?? "";
-  const view = await readQuarter(d.sheets, tab);
+  const view = await readQuarter(d.sheets, tab, d.acc);
   const row = findRowById(view, id);
   const cur = row ? readRow(view, row) : null;
   if (!row || !cur) return [text("That row is gone.")];
 
   switch (a) {
     case "ma":
-      return [text("Move to which account?", accountButtons(tab, id))];
+      return [text("Move to which account?", accountButtons(d.acc, tab, id))];
     case "mc":
       return [text("Which category?", categoryButtons(tab, id, await readCategories(d.sheets, tab)))];
     case "del":
@@ -296,7 +299,7 @@ async function onPostback(d: Deps, data: string): Promise<LineMessage[]> {
       return [text(`✓ ${summary(cur)}`, rowButtons(tab, id))];
     }
     case "acct": {
-      const to = accountByCode(p.get("v") ?? "");
+      const to = d.acc.byCode(p.get("v") ?? "");
       const entries = Object.entries(cur.amounts) as [AccountName, number][];
       if (!to) return [text("Unknown account.")];
       if (cur.type === "Transfer" || entries.length !== 1) return [text("Can't move this row. Delete it and send it again.")];
@@ -325,7 +328,7 @@ export type SlipPlan = {
   notes: string[];
 };
 
-async function onImage(d: Deps, messageId: string): Promise<LineMessage[]> {
+async function onImage(d: Ctx, messageId: string): Promise<LineMessage[]> {
   const today = bkkToday(now(d));
   const { categories } = await categoriesFor(d, today);
   const img = await d.line.getContent(messageId);
@@ -335,10 +338,10 @@ async function onImage(d: Deps, messageId: string): Promise<LineMessage[]> {
   if (!(amount > 0)) return [text("Couldn't read the amount. Send it as text, e.g. 120 lunch")];
 
   const notes: string[] = [];
-  let from = s.source_bank.confidence >= FIELD_MIN_CONFIDENCE ? accountFromLoose(s.source_bank.value) : null;
+  let from = s.source_bank.confidence >= FIELD_MIN_CONFIDENCE ? d.acc.fromLoose(s.source_bank.value) : null;
   if (!from) {
-    from = DEFAULT_ACCOUNT;
-    notes.push(`source "${s.source_bank.value || "?"}" unknown, used ${DEFAULT_ACCOUNT}`);
+    from = d.acc.default.name;
+    notes.push(`source "${s.source_bank.value || "?"}" unknown, used ${from}`);
   }
   let date = s.datetime.confidence >= FIELD_MIN_CONFIDENCE ? parseIso(s.datetime.value) : null;
   if (!date || isoDate(date) > isoDate(today)) {
@@ -348,7 +351,7 @@ async function onImage(d: Deps, messageId: string): Promise<LineMessage[]> {
   const ref = s.transaction_ref.confidence >= FIELD_MIN_CONFIDENCE ? s.transaction_ref.value.replace(/[^A-Za-z0-9]/g, "") : "";
   const id = ref.length >= 6 ? `S${ref}` : `L${messageId}`;
 
-  const own = await readOwnAccounts(d.sheets);
+  const own = await readOwnAccounts(d.sheets, d.acc);
   const to = matchOwnAccount(own, s.recipient_name.value ?? "", s.recipient_account.value ?? "");
   const recipient = (s.recipient_name.value || s.recipient_account.value || "").trim().slice(0, 40);
 
@@ -363,7 +366,7 @@ async function onImage(d: Deps, messageId: string): Promise<LineMessage[]> {
   // A wrong amount is worse than a missing row.
   if ((s.amount.confidence ?? 0) < AMOUNT_MIN_CONFIDENCE) {
     const data = pb({
-      a: "slip", amt: String(amount), f: codeOf(plan.from), to: plan.to ? codeOf(plan.to) : "",
+      a: "slip", amt: String(amount), f: d.acc.codeOf(plan.from), to: plan.to ? d.acc.codeOf(plan.to) : "",
       d: isoDate(date), id, c: category, desc: recipient.slice(0, 30),
     });
     return [text(`Read ${fmt(amount)} from ${plan.from}${recipient ? ` to ${recipient}` : ""}. Is the amount right?`, [
@@ -374,18 +377,18 @@ async function onImage(d: Deps, messageId: string): Promise<LineMessage[]> {
   return commitSlip(d, plan);
 }
 
-async function slipConfirmed(d: Deps, p: URLSearchParams): Promise<LineMessage[]> {
+async function slipConfirmed(d: Ctx, p: URLSearchParams): Promise<LineMessage[]> {
   const date = parseIso(p.get("d") ?? "");
-  const from = accountByCode(p.get("f") ?? "");
+  const from = d.acc.byCode(p.get("f") ?? "");
   const amount = Number(p.get("amt"));
   if (!date || !from || !(amount > 0)) return [text("Slip data is broken. Send it as text.")];
   return commitSlip(d, {
-    date, amount, from, to: accountByCode(p.get("to") ?? ""), category: p.get("c") ?? "",
+    date, amount, from, to: d.acc.byCode(p.get("to") ?? ""), category: p.get("c") ?? "",
     description: p.get("desc") ?? "", id: p.get("id") ?? "", notes: [],
   });
 }
 
-async function commitSlip(d: Deps, s: SlipPlan): Promise<LineMessage[]> {
+async function commitSlip(d: Ctx, s: SlipPlan): Promise<LineMessage[]> {
   const e: Entry = s.to
     ? { date: s.date, type: "Transfer", category: "", description: s.description, amounts: { [s.from]: -s.amount, [s.to]: s.amount }, id: s.id }
     : { date: s.date, type: "Expense", category: s.category, description: s.description, amounts: { [s.from]: -s.amount }, id: s.id };

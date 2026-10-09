@@ -28,6 +28,38 @@ describe("setup", () => {
     }
     expect(sheets.getFormula(Q4, 2, 16)).toMatch(/,P2,/); // untouched
   });
+
+  it("seeds a visible _Config from _Template headers with the built-in codes", async () => {
+    const { sheets, send } = await setup();
+    await send(textEvent("help"));
+    expect(sheets.tab("_Config").hidden).toBe(false);
+    const rows = (await sheets.batchGet(["'_Config'!A2:F11"]))[0];
+    expect(rows.map((r) => r[0])).toEqual(["k", "m", "s", "c", "h", "r", "l", "t", "g", "sv"]);
+    expect(rows[0].slice(0, 3)).toEqual(["k", "K-Bank", "x"]);
+    expect(rows[5][3]).toBe("Transportation");
+  });
+
+  it("uses whatever _Config says: codes, default account, help text", async () => {
+    const { sheets, send, replies } = await setup();
+    await send(textEvent("help"));
+    await sheets.update("'_Config'!A2:C3", [["kb", "K-Bank", ""], ["mk", "Make", "x"]]);
+    await send(textEvent("65 coffee"));
+    expect(sheets.getCell(Q4, 46, 5)).toBe(-65); // default is now Make
+    await send(textEvent("65 coffee kb"));
+    expect(sheets.getCell(Q4, 47, 4)).toBe(-65);
+    await send(textEvent("help"));
+    expect(lastText(replies)).toMatch(/kb = K-Bank\nmk = Make/);
+    expect(lastText(replies)).toMatch(/→ 65 from Make/);
+  });
+
+  it("reports a broken _Config instead of guessing", async () => {
+    const { sheets, send, replies, posts } = await setup();
+    await send(textEvent("help"));
+    await sheets.update("'_Config'!A3", [["k"]]);
+    await send(textEvent("65 coffee"));
+    expect(lastText(replies)).toMatch(/^Error/);
+    expect(posts[0]).toMatch(/_Config: code "k" is used twice/);
+  });
 });
 
 describe("typed entries", () => {
@@ -184,7 +216,7 @@ describe("typed entries", () => {
     sheets.tab(Q4).cells.delete("18,4"); // break the header
     await send(textEvent("65 coffee"));
     expect(lastText(replies)).toBe("Error, nothing was logged. Details sent to Discord.");
-    expect(posts[0]).toMatch(/header row 18 is missing K-Bank/);
+    expect(posts[0]).toMatch(/header row 18 has no "K-Bank" column \(check _Config\)/);
   });
 });
 

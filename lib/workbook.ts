@@ -1,4 +1,4 @@
-import { ACCOUNTS, accountFromHeader, type AccountName } from "./accounts";
+import type { AccountName, Accounts } from "./accounts";
 import { colLetter, get, q, type Cell, type SheetsApi } from "./sheets";
 import { MONTHS, fromSerial, isoDate, prevQuarterTabName, quarterOf, quarterTabName, type Ymd } from "./time";
 
@@ -41,15 +41,16 @@ export function isDateCell(v: Cell): boolean {
   return typeof v === "number" && v > 36526 && v < 73051;
 }
 
-export function parseView(tab: string, rows: Cell[][], f2Formula: Cell): QuarterView {
+export function parseView(tab: string, rows: Cell[][], f2Formula: Cell, acc: Accounts): QuarterView {
   const accountCols = new Map<AccountName, number>();
   const header = rows[HEADER_ROW - 1] ?? [];
   header.forEach((h, i) => {
-    const a = accountFromHeader(h);
+    const a = acc.fromHeader(h);
     if (a && i >= 4 && !accountCols.has(a)) accountCols.set(a, i);
   });
-  const missing = ACCOUNTS.filter((a) => !accountCols.has(a.name)).map((a) => a.name);
-  if (missing.length) throw new Error(`${tab}: header row ${HEADER_ROW} is missing ${missing.join(", ")}`);
+  if (!accountCols.size) {
+    throw new Error(`${tab}: header row ${HEADER_ROW} has none of the accounts in _Config (${acc.list.map((a) => a.name).join(", ")})`);
+  }
 
   const m = typeof f2Formula === "string" ? /\$(\d+),\$A\$\d+:\$A\$(\d+)/.exec(f2Formula) : null;
   const lastRow = m ? Number(m[2]) : 901;
@@ -64,12 +65,12 @@ export function parseView(tab: string, rows: Cell[][], f2Formula: Cell): Quarter
   return { tab, rows, accountCols, dividers, lastRow };
 }
 
-export async function readQuarter(api: SheetsApi, tab: string): Promise<QuarterView> {
+export async function readQuarter(api: SheetsApi, tab: string, acc: Accounts): Promise<QuarterView> {
   const [[rows], [f2]] = await Promise.all([
     api.batchGet([`${q(tab)}!A1:O`]),
     api.batchGet([`${q(tab)}!F2`], "FORMULA"),
   ]);
-  return parseView(tab, rows, f2?.[0]?.[0] ?? null);
+  return parseView(tab, rows, f2?.[0]?.[0] ?? null, acc);
 }
 
 function rowHasContent(view: QuarterView, row: number): boolean {
@@ -121,7 +122,7 @@ export function buildRow(view: QuarterView, e: Entry): Cell[] {
   for (const [acct, amt] of Object.entries(e.amounts)) {
     if (amt === undefined || amt === 0) continue;
     const col = view.accountCols.get(acct as AccountName);
-    if (col === undefined) throw new Error(`No column for ${acct} in ${view.tab}`);
+    if (col === undefined) throw new Error(`${view.tab}: header row ${HEADER_ROW} has no "${acct}" column (check _Config)`);
     row[col] = Math.round(amt * 100) / 100;
   }
   row[ID_COL] = safeText(e.id);
@@ -181,10 +182,10 @@ export function rowRange(view: QuarterView, row: number): string {
 export type WriteResult = { tab: string; row: number; duplicate: boolean };
 
 // Idempotent on e.id. Verifies the write and retries if a parallel webhook took the row.
-export async function writeEntry(api: SheetsApi, e: Entry): Promise<WriteResult> {
-  const tab = await ensureQuarter(api, e.date);
+export async function writeEntry(api: SheetsApi, e: Entry, acc: Accounts): Promise<WriteResult> {
+  const tab = await ensureQuarter(api, e.date, acc);
   for (let attempt = 0; attempt < 4; attempt++) {
-    const view = await readQuarter(api, tab);
+    const view = await readQuarter(api, tab, acc);
     const existing = findRowById(view, e.id);
     if (existing) return { tab, row: existing, duplicate: true };
     const pos = findAppendRow(view, e.date);
@@ -214,11 +215,11 @@ export async function readCategories(api: SheetsApi, tab: string): Promise<strin
   return rows.map((r) => String(r[0] ?? "").trim()).filter(Boolean);
 }
 
-export async function readBalances(api: SheetsApi, tab: string): Promise<Map<AccountName, { row: number; value: number }>> {
+export async function readBalances(api: SheetsApi, tab: string, acc: Accounts): Promise<Map<AccountName, { row: number; value: number }>> {
   const rows = await get(api, `${q(tab)}!C2:D14`);
   const out = new Map<AccountName, { row: number; value: number }>();
   rows.forEach((r, i) => {
-    const a = accountFromHeader(r[1]);
+    const a = acc.fromHeader(r[1]);
     if (a) out.set(a, { row: i + 2, value: typeof r[0] === "number" ? r[0] : Number(r[0]) || 0 });
   });
   return out;
@@ -240,7 +241,7 @@ export async function ensureUntracked(api: SheetsApi, tab: string): Promise<void
   await api.update(`${q(tab)}!P${UNTRACKED_ROW}:Q${UNTRACKED_ROW}`, [[UNTRACKED, f.split(",P2,").join(`,P${UNTRACKED_ROW},`)]]);
 }
 
-export async function ensureQuarter(api: SheetsApi, date: Ymd): Promise<string> {
+export async function ensureQuarter(api: SheetsApi, date: Ymd, acc: Accounts): Promise<string> {
   const name = quarterTabName(date);
   const tabs = await api.listTabs();
   if (tabs.some((t) => t.title === name)) return name;
@@ -258,11 +259,11 @@ export async function ensureQuarter(api: SheetsApi, date: Ymd): Promise<string> 
 
   const prev = prevQuarterTabName(date);
   if ((await api.listTabs()).some((t) => t.title === prev)) {
-    const bal = await readBalances(api, prev);
+    const bal = await readBalances(api, prev, acc);
     const [dNames, eVals] = await api.batchGet([`${q(name)}!D2:D14`, `${q(name)}!E2:E14`]);
     const col: Cell[][] = [];
     for (let i = 0; i < 13; i++) {
-      const a = accountFromHeader(dNames[i]?.[0] ?? null);
+      const a = acc.fromHeader(dNames[i]?.[0] ?? null);
       // Rows without an account name keep whatever the template has
       col.push([a && bal.has(a) ? Math.round(bal.get(a)!.value * 100) / 100 : (eVals[i]?.[0] ?? "")]);
     }

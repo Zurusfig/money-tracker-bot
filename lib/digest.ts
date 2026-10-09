@@ -1,7 +1,6 @@
-import { ACCOUNTS, codeOf } from "./accounts";
 import { fmt } from "./bot";
 import { get, type SheetsApi } from "./sheets";
-import { readLog } from "./state";
+import { ensureBotTabs, readAccounts, readLog } from "./state";
 import { bkkToday, bkkWeekday, daysInMonth, isoDate, quarterTabName, sameDay } from "./time";
 import { UNTRACKED, allRows, readBalances, readQuarter, type ParsedRow } from "./workbook";
 
@@ -22,9 +21,11 @@ function rowLine(r: ParsedRow): string {
 export async function buildDigest(api: SheetsApi, nowDate: Date = new Date()): Promise<string> {
   const today = bkkToday(nowDate);
   const tab = quarterTabName(today);
+  await ensureBotTabs(api);
   const tabs = await api.listTabs();
   const hasTab = tabs.some((t) => t.title === tab);
-  const rows = hasTab ? allRows(await readQuarter(api, tab)) : [];
+  const acc = await readAccounts(api);
+  const rows = hasTab ? allRows(await readQuarter(api, tab, acc)) : [];
   const logRows = tabs.some((t) => t.title === "_BotLog") ? await readLog(api) : [];
   const out: string[] = [`**Money digest ${isoDate(today)}**`];
 
@@ -71,13 +72,13 @@ export async function buildDigest(api: SheetsApi, nowDate: Date = new Date()): P
 
   // Sunday balance check
   if (bkkWeekday(nowDate) === 0 && hasTab) {
-    const bal = await readBalances(api, tab);
+    const bal = await readBalances(api, tab, acc);
     out.push("**Weekly balance check**");
-    for (const a of ACCOUNTS) {
+    for (const a of acc.list) {
       const b = bal.get(a.name);
       if (b) out.push(`- ${a.name} (${a.code}): ${fmt(b.value)}${b.value < 0 ? " (negative)" : ""}`);
     }
-    out.push(`Off? Send \`bal <code> <real amount>\`, e.g. \`bal ${codeOf("K-Bank")} 3200\``);
+    out.push(`Off? Send \`bal <code> <real amount>\`, e.g. \`bal ${acc.default.code} 3200\``);
   }
 
   // Monthly summary on the last day of the month

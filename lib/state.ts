@@ -1,10 +1,12 @@
-import { accountFromLoose, type AccountName } from "./accounts";
+import { Accounts, seedAccounts, type AccountDef, type AccountName } from "./accounts";
 import { get, q, type SheetsApi } from "./sheets";
 import { bkkToday, isoDate } from "./time";
 
 export const RULES = "_Rules";
 export const ACCOUNTS_TAB = "_Accounts";
 export const BOTLOG = "_BotLog";
+export const CONFIG = "_Config";
+const CONFIG_HEADER = ["Code", "Account (row 18 header)", "Default (x)", "bal category (blank = Untracked)", "Also called (comma separated)", "Slip names (comma separated)"];
 
 const HEADERS: Record<string, string[]> = {
   [RULES]: ["Keyword", "Category", "Updated"],
@@ -14,11 +16,45 @@ const HEADERS: Record<string, string[]> = {
 
 export async function ensureBotTabs(api: SheetsApi): Promise<void> {
   const tabs = await api.listTabs();
+  if (!tabs.some((t) => t.title === CONFIG)) await seedConfig(api);
   for (const [title, header] of Object.entries(HEADERS)) {
     if (tabs.some((t) => t.title === title)) continue;
     await api.addSheet(title, true);
     await api.update(`${q(title)}!A1`, [header]);
   }
+}
+
+// --- Config (accounts) ---
+
+// First run: build _Config from the _Template row 18 account headers (E onward).
+async function seedConfig(api: SheetsApi): Promise<void> {
+  const [header] = await api.batchGet([`${q("_Template")}!A18:N18`]);
+  const names = (header[0] ?? []).slice(4).map((h) => String(h ?? "").trim()).filter(Boolean);
+  if (!names.length) throw new Error("_Template row 18 has no account headers (E18 onward)");
+  const defs = seedAccounts(names);
+  await api.addSheet(CONFIG, false);
+  await api.update(`${q(CONFIG)}!A1:F${defs.length + 1}`, [CONFIG_HEADER, ...defs.map(configRow)]);
+}
+
+function configRow(a: AccountDef) {
+  return [a.code, a.name, a.isDefault ? "x" : "", a.balCategory, a.aliases.join(", "), a.slipNames.join(", ")];
+}
+
+const list = (v: unknown) => String(v ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+
+export async function readAccounts(api: SheetsApi): Promise<Accounts> {
+  const rows = await get(api, `${q(CONFIG)}!A2:F`);
+  const defs: AccountDef[] = rows
+    .filter((r) => String(r[0] ?? "").trim() || String(r[1] ?? "").trim())
+    .map((r) => ({
+      code: String(r[0] ?? "").trim().toLowerCase(),
+      name: String(r[1] ?? "").trim(),
+      isDefault: /^(x|y|yes|true|1)$/i.test(String(r[2] ?? "").trim()),
+      balCategory: String(r[3] ?? "").trim(),
+      aliases: list(r[4]),
+      slipNames: list(r[5]),
+    }));
+  return new Accounts(defs);
 }
 
 // --- Rules ---
@@ -76,12 +112,12 @@ export async function saveRule(api: SheetsApi, keyword: string, category: string
 
 export type OwnAccount = { match: string; account: AccountName };
 
-export async function readOwnAccounts(api: SheetsApi): Promise<OwnAccount[]> {
+export async function readOwnAccounts(api: SheetsApi, acc: Accounts): Promise<OwnAccount[]> {
   const rows = await get(api, `${q(ACCOUNTS_TAB)}!A2:B`);
   const out: OwnAccount[] = [];
   for (const r of rows) {
     const match = String(r[0] ?? "").trim();
-    const account = accountFromLoose(String(r[1] ?? ""));
+    const account = acc.fromLoose(String(r[1] ?? ""));
     if (match && account) out.push({ match, account });
   }
   return out;

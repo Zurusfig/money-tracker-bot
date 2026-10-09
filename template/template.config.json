@@ -1,0 +1,22 @@
+{
+  "year": 2026,
+  "quarter": 4,
+  "accounts": [
+    { "code": "b", "name": "Bank", "default": true, "slipNames": ["k plus", "kbank", "scb", "krungthai", "bangkok bank", "krungsri", "ttb"] },
+    { "code": "c", "name": "Cash" },
+    { "code": "e", "name": "E-Wallet", "slipNames": ["truemoney", "line pay", "shopeepay"] },
+    { "code": "sv", "name": "Savings" }
+  ],
+  "categories": [
+    { "name": "Food & Drinks", "monthlyTarget": 6000 },
+    { "name": "Coffee & Tea", "monthlyTarget": 1000 },
+    { "name": "Transportation", "monthlyTarget": 1500 },
+    { "name": "Shopping", "monthlyTarget": 2000 },
+    { "name": "Bills", "monthlyTarget": 2000 },
+    { "name": "Subscriptions", "monthlyTarget": 500 },
+    { "name": "Health", "monthlyTarget": 1000 },
+    { "name": "Entertainment", "monthlyTarget": 1000 },
+    { "name": "Education", "monthlyTarget": 1000 },
+    { "name": "Untracked" }
+  ]
+}
