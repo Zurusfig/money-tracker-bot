@@ -62,13 +62,42 @@ export function parseText(input: string): Command | null {
   return { kind: "entry", sign: m[1] === "+" ? "+" : "-", amount, description: rest.join(" "), account };
 }
 
-export const HELP_TEXT = [
-  "65 lunch  expense from K-Bank",
-  "65 lunch m  expense from Make",
-  "+7000 allowance  income",
-  "t k m 5000  transfer K-Bank to Make",
-  "bal k 3200  fix K-Bank balance",
-  "undo  remove last bot row",
-  "0  no-spend day",
-  "Codes: k m s c h r l t g sv",
-].join("\n");
+export const HELP_TEXT = `📝 Spend
+65 lunch
+→ 65 from K-Bank
+65 lunch m
+→ 65 from Make (code at the end)
+
+💰 Money in
++7000 allowance
+→ income
++134 food
+→ refund to Food & Drinks
+
+🔁 Transfer
+t k m 5000
+→ K-Bank to Make
+
+⚖️ Fix a balance
+bal k 3200
+→ logs the gap as Untracked
+
+📷 Slip photo
+→ logged automatically
+
+↩️ undo
+→ remove last bot row
+0
+→ no spending today
+
+🏦 Account codes
+k = K-Bank
+m = Make
+s = SCB
+c = Cash-Wallet
+h = Head
+r = Rabbit
+l = Line Pay
+t = True-money
+g = GWallet
+sv = Savings`;

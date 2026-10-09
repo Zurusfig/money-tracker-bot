@@ -132,7 +132,7 @@ export async function reportError(d: Deps, where: string, msg: string) {
 
 async function onText(d: Deps, raw: string, messageId: string): Promise<LineMessage[]> {
   const cmd = parseText(raw);
-  if (!cmd) return [text(`Didn't get that.\n${HELP_TEXT}`)];
+  if (!cmd) return [text("Didn't get that. Try 65 lunch, or send help for all commands.", [{ label: "help", text: "help" }])];
   return runCommand(d, cmd, `L${messageId}`);
 }
 
