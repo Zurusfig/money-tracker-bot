@@ -7,7 +7,7 @@ function need(name: string): string {
 export const config = {
   get lineChannelSecret() { return need("LINE_CHANNEL_SECRET"); },
   get lineAccessToken() { return need("LINE_CHANNEL_ACCESS_TOKEN"); },
-  get lineUserId() { return need("LINE_USER_ID"); },
+  get lineUserId() { return need("LINE_USER_ID").trim().replace(/^"|"$/g, ""); },
   get sheetId() { return need("SHEET_ID"); },
   get googleServiceAccount(): { client_email: string; private_key: string } {
     const raw = need("GOOGLE_SERVICE_ACCOUNT_JSON");

@@ -13,7 +13,11 @@ export async function POST(req: Request) {
   }
   const body = JSON.parse(raw) as { events?: LineEvent[] };
   const owner = config.lineUserId;
-  const mine = (body.events ?? []).filter((ev) => ev.source?.userId === owner);
+  const events = body.events ?? [];
+  const mine = events.filter((ev) => ev.source?.userId === owner);
+  for (const ev of events) {
+    if (ev.source?.userId !== owner) console.warn(`ignored ${ev.type} from userId=${ev.source?.userId ?? "none"} (LINE_USER_ID=${owner})`);
+  }
   if (mine.length) {
     const deps = realDeps();
     // Sequential so two quick messages don't race for the same row
