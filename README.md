@@ -1,18 +1,144 @@
 # money-tracker-bot
 
-Log spending in under 5 seconds from LINE. Type `65 lunch` or send a bank slip photo, and a row lands in your own Google Sheets budget. A nightly Discord message tells you what you logged and what you forgot.
+For people who track their money in a Google Sheet but keep putting off the logging: send a quick LINE message when you pay, and the row is written for you.
 
 ```
 You:  65 lunch
-Bot:  ✓ 65 Food & Drinks · Bank · lunch      [Account] [Category] [Delete]
+Bot:  ✓ 65 Food & Drinks · K-Bank · lunch      [Account] [Category] [Delete]
 ```
 
-- **Your data stays yours.** Everything lives in your Google Sheet. No database, no shared server.
-- **Free to run.** Vercel Hobby, LINE free plan, Gemini free tier, Discord webhook.
-- **Learns your words.** Fix a category once with a button and it remembers.
-- Built for Thailand (Thai slips, Buddhist years, Asia/Bangkok time), but works for any bank or wallet.
+<!-- Screenshot placeholder: LINE chat showing a text entry, a slip photo, and the bot's replies. Save as docs/images/line-chat.png -->
 
 ---
+
+## The problem
+
+My budget spreadsheet goes back to 2022. It now lives in Google Sheets, with one tab per quarter and one row per purchase.
+
+The weak point was the moment of payment. I would tell myself "I'll log it when I get home." Sometimes I did. Often one day became two, then a week, and I forgot what I had bought.
+
+When that happened, I had two choices:
+
+- **Catch up from memory.** A full catch-up took 10 to 20 minutes of trying to remember each purchase.
+- **Recalibrate.** I typed in the real balance of each account and added one correction row for the difference. This fixes the totals, but the money in that row has no category, so I no longer know what I spent it on.
+
+My own sheet shows how often this happened:
+
+| | July to September 2026 | October 1 to 5, 2026 |
+|---|---|---|
+| Days with at least one entry | 11 of 92 days (none in July or September) | 4 of 5 days, but 16 of 26 rows are dated October 5 |
+| Expenses with no category | 15 of 53 | 10 of 14 |
+| Size of the latest correction row | about ฿5,500, spread over 7 accounts | about ฿6,400, spread over 6 accounts |
+
+I also tried budgeting apps. They raised a different worry: if the app shuts down or I switch to another one, my history may be lost or stuck in a format I can't move.
+
+So the problem was not the spreadsheet. It was the few seconds of effort at the moment of paying, which I kept pushing to later.
+
+---
+
+## The solution
+
+The goal: logging a purchase takes under 5 seconds, right when I pay, in an app I already have open.
+
+What I do now:
+
+1. **Pay for something.**
+2. **Open LINE and message the bot.** Either type the amount and a word (`65 lunch`), or send the payment slip, which is the confirmation image a Thai banking app shows after a transfer.
+3. **Get a reply with a ✓.** It shows the amount, category and account. A row is now in my sheet.
+4. **Fix it with one tap if needed.** Buttons let me change the account or category, or delete the row. When I fix a category, the bot remembers that word for next time.
+5. **If I spent nothing today, send `0`.** That way "no entries" and "forgot to log" are not the same thing.
+6. **At 21:30 every night, read a short summary on Discord** (a chat app). It shows how many entries I made today, which categories are close to their monthly limit, and which rows still need a category. If I logged nothing and didn't send `0`, it says so.
+7. **On Sundays, check balances.** The summary lists what the sheet thinks each account holds. If one is off, I send `bal k 3200` (my real balance), and the bot adds one small correction row. This replaces the big quarterly correction.
+
+```mermaid
+sequenceDiagram
+    actor Me
+    participant LINE as LINE chat
+    participant Bot
+    participant Sheet as My Google Sheet
+    participant Discord
+    Me->>LINE: "65 lunch" or slip photo
+    LINE->>Bot: message
+    Bot->>Sheet: add one row
+    Bot-->>Me: ✓ 65 Food & Drinks · K-Bank · lunch
+    Me-->>Bot: (optional) tap to fix category or account
+    Note over Bot,Discord: every night at 21:30
+    Bot->>Discord: today's summary and what needs attention
+```
+
+---
+
+## Key decisions
+
+**1. Where to log**
+- Considered: a budgeting app, a form, or a new app of my own.
+- Chose: a chat with a bot in LINE.
+- Why: LINE is already open on my phone all day, so there is nothing new to open or install, and typing `65 lunch` is about as short as logging can get.
+- Trade-off: on LINE's free plan, the bot can only reply to my messages. It can't start a conversation, so reminders and summaries go to Discord instead.
+
+**2. Where the data lives**
+- Considered: moving to a budgeting app's own storage.
+- Chose: keep my existing Google Sheet as the only place data is stored.
+- Why: it has my history back to 2022, I can read and edit it myself, and it does not depend on any app staying in business.
+- Trade-off: the bot has to fit my sheet, not the other way around. It places each row inside the right month section and does not change my existing formulas. It also only adds a category ("Untracked") in a spot where my formulas already count every account.
+
+**3. A wrong number vs a missing row**
+- Considered: always writing what the bot reads from a slip photo.
+- Chose: if the bot is not sure about the amount, it asks "Is 1,250 right?" and writes nothing until I tap Yes.
+- Why: a wrong amount quietly breaks my totals. A missing row is easy to notice and fix.
+- Trade-off: sometimes one extra tap.
+
+**4. How categories are picked**
+- Considered: asking me every time, or letting AI decide every time.
+- Chose: first the words I have taught it, then a direct match with a category name (`coffee` is Coffee & Tea), then Google's Gemini AI, limited to my own category list. If none of these is confident, the bot saves the row without a category and asks with buttons.
+- Why: most purchases repeat (same café, same commute), so after a while the bot rarely needs the AI. That also keeps it inside the AI's free usage limit.
+- Trade-off: unknown words and slip photos are sent to Google to be read.
+
+**5. Sharing it with others**
+- Considered: one shared bot that many people could add as a friend.
+- Chose: everyone runs their own copy, connected to their own sheet. Account names and shortcuts are set in a tab inside the sheet, so no code changes are needed.
+- Why: no shared database to run or secure, everyone's money data stays in their own Google Drive, and it stays free.
+- Trade-off: each person has to set up five free services themselves (see the setup guide below).
+
+**Constraint behind all of these: it has to cost nothing to run.** It uses only free plans: Vercel (hosting), LINE, Gemini, and Discord.
+
+---
+
+## What is still unproven
+
+The bot works when I test it from my own LINE account on my computer, and its automated tests pass. These parts have not been checked in real use yet:
+
+- **Daily use.** It is not deployed yet, so I don't know if it changes my habit.
+- **The 5-second goal.** I have not timed an entry from opening LINE to the ✓ reply.
+- **Slip photos.** Reading has only been tested with made-up answers, not real slips from my banks.
+- **Category guesses.** I have not measured how often the AI picks the right category.
+- **The blank template for new users.** It has not been opened in real Google Sheets yet.
+- **Other people.** Nobody else has set it up yet.
+
+**What I'll do next:** deploy it and use it every day for a month. Then I'll compare that month with the table above: days with an entry, expenses without a category, and the size of balance corrections.
+
+---
+
+## Technical overview
+
+The bot is a small web app on Vercel (a free hosting service). When I message the bot, LINE forwards the message to the app. The app checks it really came from LINE and from me, reads the sheet's layout, and writes one row through the Google Sheets API (the official way for programs to edit a Google Sheet). Gemini reads slip photos and guesses categories for new words. Once a night, Vercel runs a scheduled job that reads the sheet and posts a summary to Discord. All settings and memory live in the sheet itself: the `_Config` tab holds account names and shortcuts, `_Rules` holds learned words, `_Accounts` holds my own account numbers (so a payment to one of them counts as a transfer between my accounts), and `_BotLog` is the bot's activity log.
+
+```mermaid
+flowchart LR
+    Phone["LINE app<br/>(text or slip photo)"] -->|message| LINE["LINE platform"]
+    LINE -->|webhook| Web["/api/line/webhook<br/>on Vercel"]
+    Web -->|reply| LINE
+    Web <-->|read / write rows| Sheet[("Google Sheet<br/>quarter tabs, _Config,<br/>_Rules, _Accounts, _BotLog")]
+    Web -->|slip image, unknown words| Gemini["Gemini AI"]
+    Cron["Vercel cron<br/>21:30 Bangkok"] --> Digest["/api/cron/daily"]
+    Digest -->|read| Sheet
+    Digest -->|summary, errors| Discord["Discord channel"]
+    Web -->|errors| Discord
+```
+
+---
+
+# Setup guide
 
 ## Contents
 1. [What you need](#1-what-you-need)
@@ -42,7 +168,7 @@ CRON_SECRET=
 
 ---
 
-## 1. What you need
+### 1. What you need
 
 All free:
 - A Google account (Sheets, Cloud Console, AI Studio)
@@ -54,7 +180,7 @@ Then **fork this repo** on GitHub (Fork button, top right).
 
 ---
 
-## 2. Set up your sheet
+### 2. Set up your sheet
 
 1. Download [`template/Budget_Template.xlsx`](template/Budget_Template.xlsx).
 2. Upload it to Google Drive, open it, then **File > Save as Google Sheets**. Use the Google Sheets version from now on (the bot can't edit `.xlsx` files).
@@ -76,7 +202,7 @@ You don't need to create quarter tabs. The bot makes `2026 Q4` (and so on) from 
 
 ---
 
-## 3. Google service account
+### 3. Google service account
 
 The bot logs in to Sheets as a "service account" (a robot Google user).
 
@@ -97,7 +223,7 @@ Keep the key file private. Anyone with it can edit your sheet.
 
 ---
 
-## 4. LINE bot
+### 4. LINE bot
 
 1. [LINE Developers Console](https://developers.line.biz/console/) > **Create a provider** (your name) > **Create a Messaging API channel**. This also creates a LINE Official Account.
 2. **Basic settings** tab:
@@ -115,7 +241,7 @@ The Channel ID (a 10-digit number) is not needed.
 
 ---
 
-## 5. Gemini and Discord
+### 5. Gemini and Discord
 
 **Gemini** (reads slips, guesses categories for new words):
 [Google AI Studio](https://aistudio.google.com/apikey) > **Create API key** → `GEMINI_API_KEY`.
@@ -131,7 +257,7 @@ openssl rand -hex 32
 
 ---
 
-## 6. Deploy to Vercel
+### 6. Deploy to Vercel
 
 1. [Vercel](https://vercel.com/new) > **Import** your fork.
 2. Before deploying, open **Environment Variables** and add all 8 values from your text file.
@@ -141,7 +267,7 @@ The nightly digest is already scheduled in `vercel.json` for 21:30 Bangkok time 
 
 ---
 
-## 7. Connect LINE and test
+### 7. Connect LINE and test
 
 1. LINE Developers > your channel > **Messaging API** tab > **Webhook URL**:
    `https://<your-app>.vercel.app/api/line/webhook`
@@ -165,7 +291,7 @@ Done. 🎉
 
 ---
 
-## Using the bot
+### Using the bot
 
 | Send | Result |
 |---|---|
@@ -206,7 +332,7 @@ If none of these is confident, the row is saved without a category and the bot a
 
 ---
 
-## Customize
+### Customize
 
 All settings live in the sheet. No redeploy needed.
 
@@ -236,7 +362,7 @@ To add an account: type the name in an empty `_Template` row 18 column (E to N) 
 
 To unhide a tab: **View > Hidden sheets**.
 
-### Using your own sheet
+#### Using your own sheet
 
 The bot works with any sheet that follows the template's layout:
 
@@ -253,7 +379,7 @@ If `_Config` doesn't exist, the bot creates it on the first message from your `_
 
 ---
 
-## Troubleshooting
+### Troubleshooting
 
 | Symptom | Fix |
 |---|---|
@@ -271,7 +397,7 @@ If `_Config` doesn't exist, the bot creates it on the first message from your `_
 
 ---
 
-## Development
+### Development
 
 ```bash
 npm install
@@ -299,7 +425,7 @@ curl -X POST localhost:3000/api/line/webhook -H "x-line-signature: $SIG" -d "$B"
 npm run template
 ```
 
-### Project layout
+#### Project layout
 
 | Path | What |
 |---|---|
@@ -312,7 +438,7 @@ npm run template
 | `lib/accounts.ts`, `lib/state.ts` | `_Config`, `_Rules`, `_Accounts`, `_BotLog` |
 | `test/` | Tests with an in-memory Google Sheets fake |
 
-### How rows are written
+#### How rows are written
 - The tab is chosen by the entry date (`YYYY QN`). Columns are found by reading row 18.
 - A new row goes in its month's block, after the last dated row. Rows without a date are never overwritten. If a block is full, a row is inserted before the next month header.
 - Dates are written as real dates. Typed text that looks like a formula stays plain text.
@@ -320,5 +446,5 @@ npm run template
 - `undo` and Delete clear the row's values instead of deleting the row, so formulas and month blocks never shift.
 - New quarter: copies `_Template`, sets R1/R2, copies last quarter's balances into the Start column.
 
-### Privacy
+#### Privacy
 The bot only answers the LINE user in `LINE_USER_ID`. The bot itself stores nothing outside your sheet. Slip images and unknown descriptions are sent to Google's Gemini API; on the free tier Google may use that data to improve its products (see the Gemini API terms). Never commit `.env.local` or the service account key.
