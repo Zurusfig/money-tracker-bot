@@ -7,7 +7,9 @@ You:  65 lunch
 Bot:  ✓ 65 Food & Drinks · K-Bank · lunch      [Account] [Category] [Delete]
 ```
 
-<!-- Screenshot placeholder: LINE chat showing a text entry, a slip photo, and the bot's replies. Save as docs/images/line-chat.png -->
+<p align="center">
+  <img src="docs/images/line-chat.png" alt="LINE chat: typed entries, the bot asking for a category, a one-tap fix, and undo" width="360">
+</p>
 
 ---
 
