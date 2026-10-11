@@ -62,3 +62,12 @@ describe("parseText", () => {
     expect(parseAmount("abc")).toBeNull();
   });
 });
+
+describe("view commands", () => {
+  it("bal alone shows balances, bal with args fixes one", () => {
+    expect(parseText("bal")).toEqual({ kind: "balances" });
+    expect(parseText("Balance")).toEqual({ kind: "balances" });
+    expect(parseText("bal k 100")).toMatchObject({ kind: "bal" });
+    expect(parseText("stats")).toEqual({ kind: "stats" });
+  });
+});

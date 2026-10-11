@@ -6,7 +6,9 @@ export type Command =
   | { kind: "bal"; account: AccountName; actual: number }
   | { kind: "undo" }
   | { kind: "nospend" }
-  | { kind: "help" };
+  | { kind: "help" }
+  | { kind: "balances" }
+  | { kind: "stats" };
 
 const AMOUNT = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?|\.\d{1,2}`;
 
@@ -22,6 +24,8 @@ export function parseText(input: string, acc: Accounts): Command | null {
   if (lower === "undo") return { kind: "undo" };
   if (lower === "0") return { kind: "nospend" };
   if (lower === "help" || lower === "?") return { kind: "help" };
+  if (lower === "bal" || lower === "balance" || lower === "balances") return { kind: "balances" };
+  if (lower === "stats" || lower === "stat") return { kind: "stats" };
 
   const tokens = text.split(" ");
   const head = tokens[0].toLowerCase();
@@ -81,6 +85,14 @@ export function helpText(acc: Accounts): string {
     "🔁 Transfer",
     `t ${def.code} ${other.code} 5000`,
     `→ ${def.name} to ${other.name}`,
+    "",
+    "💳 All balances",
+    "bal",
+    "→ every account, here in LINE",
+    "",
+    "📊 Stats",
+    "stats",
+    "→ today, week, month on Discord",
     "",
     "⚖️ Fix a balance",
     `bal ${def.code} 3200`,

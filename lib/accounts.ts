@@ -10,7 +10,7 @@ export type AccountDef = {
   slipNames: string[]; // words on a slip that identify this account as the payer
 };
 
-const RESERVED = new Set(["bal", "undo", "help"]);
+const RESERVED = new Set(["bal", "undo", "help", "stats", "stat", "balance", "balances"]);
 
 // The original owner's setup. Used to seed _Config when the sheet's headers match.
 export const BUILTIN: AccountDef[] = [

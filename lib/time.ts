@@ -51,6 +51,16 @@ export function fromSerial(n: number): Ymd {
   return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() };
 }
 
+export function addDays(d: Ymd, n: number): Ymd {
+  const t = new Date(Date.UTC(d.y, d.m - 1, d.d + n));
+  return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() };
+}
+
+// 0 = Sunday
+export function weekdayOf(d: Ymd): number {
+  return new Date(Date.UTC(d.y, d.m - 1, d.d)).getUTCDay();
+}
+
 export function sameDay(a: Ymd, b: Ymd): boolean {
   return a.y === b.y && a.m === b.m && a.d === b.d;
 }

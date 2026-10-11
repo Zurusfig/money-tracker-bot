@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { vi } from "vitest";
 import type { Deps, LineEvent } from "@/lib/bot";
+import type { Embed } from "@/lib/discord";
 import type { Ai, SlipData } from "@/lib/gemini";
 import type { LineMessage } from "@/lib/line";
 import { FakeSheets, type TabDump } from "./fakeSheets";
@@ -39,6 +40,7 @@ export function slip(over: Partial<{ [K in keyof SlipData]: SlipData[K] extends 
 export function makeDeps(sheets: FakeSheets, nowIso = "2026-10-09T05:00:00Z") {
   const replies: LineMessage[][] = [];
   const posts: string[] = [];
+  const embeds: Embed[] = [];
   const ai = {
     categorize: vi.fn<Ai["categorize"]>(async () => ({ category: "", confidence: 0 })),
     readSlip: vi.fn<Ai["readSlip"]>(async () => slip()),
@@ -50,10 +52,10 @@ export function makeDeps(sheets: FakeSheets, nowIso = "2026-10-09T05:00:00Z") {
       reply: async (_t, m) => void replies.push(m),
       getContent: async () => ({ data: Buffer.from("img"), mimeType: "image/jpeg" }),
     },
-    notify: { post: async (c) => void posts.push(c) },
+    notify: { post: async (c) => void posts.push(c), postEmbed: async (e) => void embeds.push(e), enabled: true },
     now: () => new Date(nowIso),
   };
-  return { deps, replies, posts, ai };
+  return { deps, replies, posts, embeds, ai };
 }
 
 let n = 1000;

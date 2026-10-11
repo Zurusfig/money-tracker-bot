@@ -6,7 +6,7 @@ import { UNTRACKED, allRows, readBalances, readQuarter, type ParsedRow } from ".
 
 export const NEAR_BUDGET = 0.9;
 
-function spent(rows: ParsedRow[]): number {
+export function spent(rows: ParsedRow[]): number {
   // Net expense: refunds (positive Expense rows) reduce it
   let s = 0;
   for (const r of rows) if (r.type === "Expense") for (const v of Object.values(r.amounts)) s -= v ?? 0;
@@ -16,6 +16,19 @@ function spent(rows: ParsedRow[]): number {
 function rowLine(r: ParsedRow): string {
   const [acct, amt] = (Object.entries(r.amounts)[0] ?? ["?", 0]) as [string, number];
   return `${isoDate(r.date)} ${amt > 0 ? "+" : ""}${amt} ${acct}${r.description ? ` "${r.description}"` : ""} (row ${r.row})`;
+}
+
+// Budget!B6:C25: category -> monthly target
+export async function readBudget(api: SheetsApi): Promise<Map<string, number>> {
+  const tabs = await api.listTabs();
+  const rows = tabs.some((t) => t.title === "Budget") ? await get(api, "Budget!B6:C25") : [];
+  const out = new Map<string, number>();
+  for (const [name, target] of rows) {
+    const cat = String(name ?? "").trim();
+    const t = typeof target === "number" ? target : Number(target);
+    if (cat && t > 0) out.set(cat, t);
+  }
+  return out;
 }
 
 export async function buildDigest(api: SheetsApi, nowDate: Date = new Date()): Promise<string> {
@@ -43,12 +56,9 @@ export async function buildDigest(api: SheetsApi, nowDate: Date = new Date()): P
 
   // Budget (monthly targets vs month-to-date)
   const monthRows = rows.filter((r) => r.date.y === today.y && r.date.m === today.m);
-  const budget = tabs.some((t) => t.title === "Budget") ? await get(api, "Budget!B6:C25") : [];
+  const budget = await readBudget(api);
   const flags: string[] = [];
-  for (const [name, target] of budget) {
-    const cat = String(name ?? "").trim();
-    const t = typeof target === "number" ? target : Number(target);
-    if (!cat || !(t > 0)) continue;
+  for (const [cat, t] of budget) {
     const s = spent(monthRows.filter((r) => r.category === cat));
     const pct = s / t;
     if (pct >= NEAR_BUDGET) flags.push(`${pct >= 1 ? "🔴 over" : "🟡 near"} ${cat}: ${fmt(s)} / ${fmt(t)} (${Math.round(pct * 100)}%)`);

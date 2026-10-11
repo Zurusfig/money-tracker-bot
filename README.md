@@ -50,7 +50,8 @@ What I do now:
 4. **Fix it with one tap if needed.** Buttons let me change the account or category, or delete the row. When I fix a category, the bot remembers that word for next time.
 5. **If I spent nothing today, send `0`.** That way "no entries" and "forgot to log" are not the same thing.
 6. **At 21:30 every night, read a short summary on Discord** (a chat app). It shows how many entries I made today, which categories are close to their monthly limit, and which rows still need a category. If I logged nothing and didn't send `0`, it says so.
-7. **On Sundays, check balances.** The summary lists what the sheet thinks each account holds. If one is off, I send `bal k 3200` (my real balance), and the bot adds one small correction row. This replaces the big quarterly correction.
+7. **Any time, check where I stand.** `bal` lists every account's balance right in LINE. `stats` sends a small dashboard to Discord: spending today, this week and this month, top categories against their limits, and the biggest purchases this week.
+8. **On Sundays, check balances.** The summary lists what the sheet thinks each account holds. If one is off, I send `bal k 3200` (my real balance), and the bot adds one small correction row. This replaces the big quarterly correction.
 
 ```mermaid
 sequenceDiagram
@@ -302,7 +303,9 @@ Done. 🎉
 | `+7000 salary` | Income |
 | `+134 food` | Refund: positive amount in that category (only if the word is a known category or rule) |
 | `t b c 500` | Transfer: account `b` to account `c` |
+| `bal` | Every account's balance and the total, in LINE |
 | `bal b 3200` | "My real balance is 3200." Logs the difference as `Untracked` |
+| `stats` | Dashboard on Discord: today, this week (from Monday), this month, categories vs targets, biggest purchases |
 | `undo` | Removes the last row the bot wrote |
 | `0` | "I spent nothing today" |
 | `help` | Command list with your account codes |
@@ -325,7 +328,12 @@ If none of these is confident, the row is saved without a category and the bot a
 - If the amount is unclear, the bot asks "Is 1,250 right?" before writing anything.
 - A slip paid *to* one of your own accounts (listed in `_Accounts`) is logged as a transfer.
 
-**Nightly digest** (Discord, 21:30):
+**`stats` on Discord** (any time):
+- Today, this week and this month spending, with the change from the same days last week and last month.
+- Categories this month as bars against their monthly target.
+- The 3 biggest purchases this week, income this month, days logged, rows that need a category.
+
+**Nightly digest** (Discord, 21:30, automatic):
 - Daily: today's entries and total. If you logged nothing and didn't send `0`, it says so.
 - Daily: categories near or over their monthly target.
 - Daily: rows that need review.

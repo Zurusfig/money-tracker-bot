@@ -3,6 +3,7 @@ import type { Ai } from "./gemini";
 import { text, type LineApi, type LineMessage, type QuickItem } from "./line";
 import type { Notifier } from "./discord";
 import { helpText, parseText, type Command } from "./parser";
+import { buildStats } from "./stats";
 import type { Cell, SheetsApi } from "./sheets";
 import {
   ensureBotTabs, lastLiveWrite, log, matchCategoryName, matchOwnAccount, matchRule,
@@ -151,6 +152,10 @@ export async function runCommand(d: Ctx, cmd: Command, id: string): Promise<Line
         date: today, type: "Transfer", category: "", description: cmd.description,
         amounts: { [cmd.from]: -cmd.amount, [cmd.to]: cmd.amount }, id,
       });
+    case "balances":
+      return balances(d, today);
+    case "stats":
+      return stats(d);
     case "bal":
       return bal(d, cmd.account, cmd.actual, id, today);
     case "undo":
@@ -236,6 +241,31 @@ async function bal(d: Ctx, account: AccountName, actual: number, id: string, tod
   return [text(`${account} gap ${dir}${fmt(gap)} (sheet ${fmt(sheet.value)}, real ${fmt(actual)}). Logged as ${category}.`, rowButtons(res.tab, id))];
 }
 
+function signed(n: number): string {
+  return `${n < 0 ? "-" : ""}${fmt(n)}`;
+}
+
+async function balances(d: Ctx, today: Ymd): Promise<LineMessage[]> {
+  const tab = await ensureQuarter(d.sheets, today, d.acc);
+  const bal = await readBalances(d.sheets, tab, d.acc);
+  const lines: string[] = [];
+  let total = 0;
+  for (const a of d.acc.list) {
+    const b = bal.get(a.name);
+    if (!b) continue;
+    total += b.value;
+    lines.push(`${a.name} (${a.code}): ${signed(b.value)}${b.value < 0 ? " ⚠️" : ""}`);
+  }
+  if (!lines.length) return [text(`No balances found in ${tab} C2:D14.`)];
+  return [text([`💳 Balances · ${tab}`, ...lines, `Total: ${signed(Math.round(total * 100) / 100)}`, "", `Off? Send bal ${d.acc.default.code} <real amount>`].join("\n"))];
+}
+
+async function stats(d: Ctx): Promise<LineMessage[]> {
+  if (!d.notify.enabled) return [text("Discord isn't set up. Add DISCORD_WEBHOOK_URL in Vercel.")];
+  await d.notify.postEmbed(await buildStats(d.sheets, d.acc, now(d)));
+  return [text("📊 Stats sent to Discord.")];
+}
+
 async function undo(d: Ctx, cmdId: string) {
   const entries = await readLog(d.sheets);
   if (entries.some((e) => e.kind === "undo" && e.detail === cmdId)) return [text("Already undone.")];
@@ -253,7 +283,7 @@ async function undo(d: Ctx, cmdId: string) {
 async function noSpend(d: Ctx, cmdId: string, today: Ymd) {
   const date = isoDate(today);
   const entries = await readLog(d.sheets);
-  if (entries.some((e) => e.kind === "nospend" && e.date === date)) return [text(`${date} is already a no-spend day.`)];
+  if (entries.some((e) => e.kind === "nospend" && e.detail === date)) return [text(`${date} is already a no-spend day.`)];
   await log(d.sheets, "nospend", "", cmdId, date);
   return [text(`✓ No-spend day: ${date}`)];
 }
