@@ -1,14 +1,15 @@
 import type { AccountName, Accounts } from "./accounts";
 
 export type Command =
-  | { kind: "entry"; sign: "-" | "+"; amount: number; description: string; account: AccountName | null }
+  | { kind: "entry"; sign: "-" | "+"; amount: number; description: string; account: AccountName | null; tag?: string }
   | { kind: "transfer"; from: AccountName; to: AccountName; amount: number; description: string }
   | { kind: "bal"; account: AccountName; actual: number }
   | { kind: "undo" }
   | { kind: "nospend" }
   | { kind: "help" }
   | { kind: "balances" }
-  | { kind: "stats" };
+  | { kind: "stats" }
+  | { kind: "categories" };
 
 const AMOUNT = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?|\.\d{1,2}`;
 
@@ -26,6 +27,7 @@ export function parseText(input: string, acc: Accounts): Command | null {
   if (lower === "help" || lower === "?") return { kind: "help" };
   if (lower === "bal" || lower === "balance" || lower === "balances") return { kind: "balances" };
   if (lower === "stats" || lower === "stat") return { kind: "stats" };
+  if (lower === "cats" || lower === "categories") return { kind: "categories" };
 
   const tokens = text.split(" ");
   const head = tokens[0].toLowerCase();
@@ -54,7 +56,9 @@ export function parseText(input: string, acc: Accounts): Command | null {
   const m = /^(\+?)(.+)$/.exec(tokens[0]);
   const amount = m ? parseAmount(m[2]) : null;
   if (!m || amount === null || amount <= 0) return null;
-  let rest = tokens.slice(1);
+  // "#pets" or "#home_decor" anywhere picks (or creates) the category
+  const tags = tokens.slice(1).filter((t) => /^#\S/.test(t));
+  let rest = tokens.slice(1).filter((t) => !/^#\S/.test(t));
   let account: AccountName | null = null;
   if (rest.length > 0) {
     const last = acc.byCode(rest[rest.length - 1]);
@@ -63,7 +67,9 @@ export function parseText(input: string, acc: Accounts): Command | null {
       rest = rest.slice(0, -1);
     }
   }
-  return { kind: "entry", sign: m[1] === "+" ? "+" : "-", amount, description: rest.join(" "), account };
+  const cmd: Command = { kind: "entry", sign: m[1] === "+" ? "+" : "-", amount, description: rest.join(" "), account };
+  if (tags.length) cmd.tag = tags[0].slice(1).replace(/_/g, " ");
+  return cmd;
 }
 
 export function helpText(acc: Accounts): string {
@@ -75,6 +81,9 @@ export function helpText(acc: Accounts): string {
     `→ 65 from ${def.name}`,
     `65 lunch ${other.code}`,
     `→ 65 from ${other.name} (code at the end)`,
+    "",
+    "450 dog food #pets",
+    "→ uses or creates category Pets",
     "",
     "💰 Money in",
     "+7000 allowance",
@@ -93,6 +102,10 @@ export function helpText(acc: Accounts): string {
     "📊 Stats",
     "stats",
     "→ today, week, month on Discord",
+    "",
+    "🏷️ Categories",
+    "cats",
+    "→ list all categories",
     "",
     "⚖️ Fix a balance",
     `bal ${def.code} 3200`,

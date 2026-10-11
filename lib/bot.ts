@@ -11,7 +11,7 @@ import {
 } from "./state";
 import { bkkToday, isoDate, parseIso, quarterTabName, type Ymd } from "./time";
 import {
-  TEMPLATE, UNTRACKED, clearRow, ensureQuarter, ensureUntracked, findRowById, readBalances,
+  TEMPLATE, UNTRACKED, addCategory, clearRow, ensureQuarter, ensureUntracked, findRowById, readBalances,
   readCategories, readQuarter, readRow, updateCells, writeEntry, type Entry, type ParsedRow,
 } from "./workbook";
 
@@ -65,9 +65,11 @@ function rowButtons(tab: string, id: string, type = "Expense"): QuickItem[] {
   ];
 }
 
-function categoryButtons(tab: string, id: string, categories: string[]): QuickItem[] {
+function categoryButtons(tab: string, id: string, categories: string[], suggestion?: string): QuickItem[] {
+  const fresh = suggestion ? [{ label: `➕ ${suggestion}`, data: pb({ a: "newcat", t: tab, id, v: suggestion }) }] : [];
   return [
-    ...categories.slice(0, 12).map((c) => ({ label: c, data: pb({ a: "cat", t: tab, id, v: c }) })),
+    ...fresh,
+    ...categories.slice(0, 12 - fresh.length).map((c) => ({ label: c, data: pb({ a: "cat", t: tab, id, v: c }) })),
     { label: "Delete", data: pb({ a: "del", t: tab, id }) },
   ];
 }
@@ -156,6 +158,10 @@ export async function runCommand(d: Ctx, cmd: Command, id: string): Promise<Line
       return balances(d, today);
     case "stats":
       return stats(d);
+    case "categories": {
+      const { tab, categories } = await categoriesFor(d, today);
+      return [text([`🏷️ Categories · ${tab}`, ...categories.map((c) => `• ${c}`), "", "New one: add #name to an entry, e.g. 450 dog food #pets"].join("\n"))];
+    }
     case "bal":
       return bal(d, cmd.account, cmd.actual, id, today);
     case "undo":
@@ -170,7 +176,7 @@ async function categoriesFor(d: Ctx, date: Ymd): Promise<{ tab: string; categori
   return { tab, categories: await readCategories(d.sheets, tab) };
 }
 
-type Resolved = { category: string; lowConfidence: boolean };
+type Resolved = { category: string; lowConfidence: boolean; suggestion?: string };
 
 async function resolveCategory(d: Ctx, description: string, categories: string[], useAi: boolean): Promise<Resolved> {
   if (!description) return { category: "", lowConfidence: true };
@@ -181,23 +187,59 @@ async function resolveCategory(d: Ctx, description: string, categories: string[]
   try {
     const g = await d.ai.categorize(description, categories);
     if (g.category && g.confidence >= CATEGORY_MIN_CONFIDENCE) return { category: g.category, lowConfidence: false };
+    return { category: "", lowConfidence: true, suggestion: g.newCategory };
   } catch (err) {
     await reportError(d, "gemini categorize", err instanceof Error ? err.message : String(err));
   }
   return { category: "", lowConfidence: true };
 }
 
+// Adds to the quarter tab and _Template so later quarters keep it
+async function createCategory(d: Ctx, tab: string, raw: string): Promise<string> {
+  const name = await addCategory(d.sheets, tab, raw);
+  if (tab !== TEMPLATE) {
+    try {
+      await addCategory(d.sheets, TEMPLATE, name);
+    } catch (err) {
+      await reportError(d, "add category to _Template", err instanceof Error ? err.message : String(err));
+    }
+  }
+  return name;
+}
+
+// "#pets": an existing category if it matches, else a new one
+async function tagCategory(d: Ctx, tab: string, tag: string, categories: string[]): Promise<{ category: string; created: boolean }> {
+  const t = tag.trim().toLowerCase();
+  const hit = categories.find((c) => c.toLowerCase() === t) ?? matchCategoryName(tag, categories);
+  if (hit) return { category: hit, created: false };
+  return { category: await createCategory(d, tab, tag), created: true };
+}
+
+async function tagged(d: Ctx, cmd: Extract<Command, { kind: "entry" }>, id: string, today: Ymd, sign: 1 | -1) {
+  const { tab, categories } = await categoriesFor(d, today);
+  const { category, created } = await tagCategory(d, tab, cmd.tag!, categories);
+  if (cmd.description) await saveRule(d.sheets, cmd.description, category);
+  const msgs = await commit(d, {
+    date: today, type: "Expense", category, description: cmd.description,
+    amounts: { [cmd.account ?? d.acc.default.name]: sign * cmd.amount }, id,
+  });
+  if (created) msgs[0].text += `\n🆕 New category: ${category}`;
+  return msgs;
+}
+
 async function expense(d: Ctx, cmd: Extract<Command, { kind: "entry" }>, id: string, today: Ymd) {
+  if (cmd.tag) return tagged(d, cmd, id, today, -1);
   const { categories } = await categoriesFor(d, today);
   const r = await resolveCategory(d, cmd.description, categories, true);
   return commit(d, {
     date: today, type: "Expense", category: r.category, description: cmd.description,
     amounts: { [cmd.account ?? d.acc.default.name]: -cmd.amount }, id,
-  }, categories);
+  }, categories, r.suggestion);
 }
 
 // "+134 food" is a refund only when the word is a known category; otherwise Income.
 async function plus(d: Ctx, cmd: Extract<Command, { kind: "entry" }>, id: string, today: Ymd) {
+  if (cmd.tag) return tagged(d, cmd, id, today, 1);
   const { categories } = await categoriesFor(d, today);
   const r = await resolveCategory(d, cmd.description, categories, false);
   const acct = cmd.account ?? d.acc.default.name;
@@ -207,11 +249,11 @@ async function plus(d: Ctx, cmd: Extract<Command, { kind: "entry" }>, id: string
   return commit(d, { date: today, type: "Income", category: "", description: cmd.description, amounts: { [acct]: cmd.amount }, id });
 }
 
-async function commit(d: Ctx, e: Entry, categories?: string[]): Promise<LineMessage[]> {
-  return (await commitEntry(d, e, categories)).msgs;
+async function commit(d: Ctx, e: Entry, categories?: string[], suggestion?: string): Promise<LineMessage[]> {
+  return (await commitEntry(d, e, categories, suggestion)).msgs;
 }
 
-async function commitEntry(d: Ctx, e: Entry, categories?: string[]): Promise<{ msgs: LineMessage[]; duplicate: boolean }> {
+async function commitEntry(d: Ctx, e: Entry, categories?: string[], suggestion?: string): Promise<{ msgs: LineMessage[]; duplicate: boolean }> {
   const res = await writeEntry(d.sheets, e, d.acc);
   if (res.duplicate) return { msgs: [text(`Already logged (${res.tab} row ${res.row}).`)], duplicate: true };
   await log(d.sheets, "write", res.tab, e.id, summary(e));
@@ -219,7 +261,7 @@ async function commitEntry(d: Ctx, e: Entry, categories?: string[]): Promise<{ m
   if (e.type === "Expense" && !e.category) {
     await log(d.sheets, "lowconf", res.tab, e.id, "category");
     const cats = categories ?? (await readCategories(d.sheets, res.tab));
-    return { msgs: [text(`${line}\nWhich category?`, categoryButtons(res.tab, e.id, cats))], duplicate: false };
+    return { msgs: [text(`${line}\nWhich category?`, categoryButtons(res.tab, e.id, cats, suggestion))], duplicate: false };
   }
   return { msgs: [text(line, rowButtons(res.tab, e.id, e.type))], duplicate: false };
 }
@@ -312,9 +354,15 @@ async function onPostback(d: Ctx, data: string): Promise<LineMessage[]> {
       await clearRow(d.sheets, view, row);
       await log(d.sheets, "delete", tab, id, "button");
       return [text(`Deleted: ${summary(cur)}`)];
+    case "newcat":
     case "cat": {
-      const cat = p.get("v") ?? "";
-      if (!(await readCategories(d.sheets, tab)).includes(cat)) return [text(`Unknown category ${cat}.`)];
+      let cat = p.get("v") ?? "";
+      let created = false;
+      if (a === "newcat") {
+        const before = await readCategories(d.sheets, tab);
+        cat = await createCategory(d, tab, cat);
+        created = !before.includes(cat);
+      } else if (!(await readCategories(d.sheets, tab)).includes(cat)) return [text(`Unknown category ${cat}.`)];
       if (cur.type === "Transfer") return [text("Transfers have no category.")];
       if (cur.type === "Income") {
         // Income with a category becomes a refund: positive Expense
@@ -326,7 +374,7 @@ async function onPostback(d: Ctx, data: string): Promise<LineMessage[]> {
       cur.category = cat;
       if (cur.description) await saveRule(d.sheets, cur.description, cat);
       await log(d.sheets, "edit", tab, id, `category ${cat}`);
-      return [text(`✓ ${summary(cur)}`, rowButtons(tab, id))];
+      return [text(`✓ ${summary(cur)}${created ? `\n🆕 New category: ${cat}` : ""}`, rowButtons(tab, id))];
     }
     case "acct": {
       const to = d.acc.byCode(p.get("v") ?? "");

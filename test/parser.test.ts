@@ -71,3 +71,14 @@ describe("view commands", () => {
     expect(parseText("stats")).toEqual({ kind: "stats" });
   });
 });
+
+describe("#tag", () => {
+  it("pulls the category tag out of the description", () => {
+    expect(parseText("450 dog food #pets")).toMatchObject({ description: "dog food", tag: "pets", account: null });
+    expect(parseText("450 #pets dog food m")).toMatchObject({ description: "dog food", tag: "pets", account: "Make" });
+    expect(parseText("90 lamp #home_decor")).toMatchObject({ description: "lamp", tag: "home decor" });
+    expect(parseText("+200 #pets")).toMatchObject({ sign: "+", description: "", tag: "pets" });
+    expect(parseText("65 lunch")).not.toHaveProperty("tag");
+    expect(parseText("cats")).toEqual({ kind: "categories" });
+  });
+});

@@ -300,9 +300,11 @@ Done. 🎉
 |---|---|
 | `65 lunch` | Expense from your default account |
 | `65 lunch c` | Expense from the account with code `c` (last word, exact code only) |
+| `450 dog food #pets` | Expense in category Pets. If Pets doesn't exist, it's created (`#home_decor` for two words) |
 | `+7000 salary` | Income |
 | `+134 food` | Refund: positive amount in that category (only if the word is a known category or rule) |
 | `t b c 500` | Transfer: account `b` to account `c` |
+| `cats` | List your categories |
 | `bal` | Every account's balance and the total, in LINE |
 | `bal b 3200` | "My real balance is 3200." Logs the difference as `Untracked` |
 | `stats` | Dashboard on Discord: today, this week (from Monday), this month, categories vs targets, biggest purchases |
@@ -321,7 +323,9 @@ Done. 🎉
 2. A category name match (`coffee` → Coffee & Tea)
 3. Gemini, limited to your category list
 
-If none of these is confident, the row is saved without a category and the bot asks with buttons.
+If none of these is confident, the row is saved without a category and the bot asks with buttons. When nothing on your list fits, Gemini also suggests a new category as the first button (e.g. `➕ Gifts`). Nothing is created unless you tap it.
+
+New categories (from `#tag` or the ➕ button) go into the first empty slot in P2:P51 of the quarter tab and `_Template`. Where that row has no spending formula in column Q, one is copied from Q2. Existing formulas are never changed. Add a monthly target in `Budget` if you want one.
 
 **Slips**:
 - Sending the same slip twice is ignored.

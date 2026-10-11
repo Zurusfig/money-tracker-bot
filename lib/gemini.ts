@@ -1,7 +1,7 @@
 import { config } from "./config";
 
 export type Field<T> = { value: T; confidence: number };
-export type CategoryGuess = { category: string; confidence: number };
+export type CategoryGuess = { category: string; confidence: number; newCategory?: string };
 export type SlipData = {
   is_slip: boolean;
   amount: Field<number>;
@@ -53,18 +53,25 @@ export class Gemini implements Ai {
       properties: {
         category: { type: "string", enum: [...categories, ""] },
         confidence: { type: "number", minimum: 0, maximum: 1 },
+        new_category: { type: "string" },
       },
-      required: ["category", "confidence"],
+      required: ["category", "confidence", "new_category"],
     };
     const prompt = [
       "Pick the spending category for a personal expense logged in Bangkok, Thailand.",
       "Descriptions are short, may be Thai, English, brand names or slang.",
       `Categories: ${categories.join(" | ")}`,
       'If none fits or you are unsure, use "" with low confidence. Confidence is your probability of being right.',
+      'new_category: only when no listed category fits, a short new category name (1-3 words, Title Case, English, broad enough to reuse, e.g. "Pets", "Gifts", "Home"). Otherwise "".',
       `Description: ${JSON.stringify(description)}`,
     ].join("\n");
-    const r = (await this.generate([{ text: prompt }], schema)) as CategoryGuess;
-    return { category: categories.includes(r.category) ? r.category : "", confidence: Number(r.confidence) || 0 };
+    const r = (await this.generate([{ text: prompt }], schema)) as CategoryGuess & { new_category?: string };
+    const fresh = String(r.new_category ?? "").trim();
+    return {
+      category: categories.includes(r.category) ? r.category : "",
+      confidence: Number(r.confidence) || 0,
+      newCategory: fresh && !categories.some((c) => c.toLowerCase() === fresh.toLowerCase()) ? fresh : undefined,
+    };
   }
 
   async readSlip(image: Buffer, mimeType: string, categories: string[]): Promise<SlipData> {

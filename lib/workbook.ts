@@ -241,6 +241,35 @@ export async function ensureUntracked(api: SheetsApi, tab: string): Promise<void
   await api.update(`${q(tab)}!P${UNTRACKED_ROW}:Q${UNTRACKED_ROW}`, [[UNTRACKED, f.split(",P2,").join(`,P${UNTRACKED_ROW},`)]]);
 }
 
+// "dog food" -> "Dog Food"; keeps the user's casing if they typed any capitals
+export function cleanCategoryName(raw: string): string {
+  const s = raw.replace(/\s+/g, " ").trim().replace(/^[=+\-@']+/, "").slice(0, 30).trim();
+  return s === s.toLowerCase() ? s.replace(/(^|\s)\S/g, (c) => c.toUpperCase()) : s;
+}
+
+// Adds a category to the first empty P2:P51 slot. Where that row has no spending formula in Q,
+// one is copied from Q2. Existing formulas are never changed. Returns the stored name.
+export async function addCategory(api: SheetsApi, tab: string, raw: string): Promise<string> {
+  const name = cleanCategoryName(raw);
+  if (!name) throw new Error("Empty category name");
+  const [[p], [qf]] = await Promise.all([api.batchGet([`${q(tab)}!P2:P51`]), api.batchGet([`${q(tab)}!Q2:Q51`], "FORMULA")]);
+  const cats = Array.from({ length: 50 }, (_, i) => String(p[i]?.[0] ?? "").trim());
+  const existing = cats.find((c) => c.toLowerCase() === name.toLowerCase());
+  if (existing) return existing;
+  const i = cats.findIndex((c) => !c);
+  if (i < 0) throw new Error(`${tab}: category list P2:P51 is full`);
+  const row = i + 2;
+  const hasFormula = typeof qf[i]?.[0] === "string" && String(qf[i][0]).startsWith("=");
+  if (hasFormula) {
+    await api.update(`${q(tab)}!P${row}`, [[name]]);
+  } else {
+    const f = qf[0]?.[0];
+    if (typeof f !== "string" || !f.includes(",P2,")) throw new Error(`${tab}!Q2 formula not recognised`);
+    await api.update(`${q(tab)}!P${row}:Q${row}`, [[name, f.split(",P2,").join(`,P${row},`)]]);
+  }
+  return name;
+}
+
 export async function ensureQuarter(api: SheetsApi, date: Ymd, acc: Accounts): Promise<string> {
   const name = quarterTabName(date);
   const tabs = await api.listTabs();
