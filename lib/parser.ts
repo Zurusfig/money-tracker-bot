@@ -9,7 +9,8 @@ export type Command =
   | { kind: "help" }
   | { kind: "balances" }
   | { kind: "stats" }
-  | { kind: "categories" };
+  | { kind: "categories" }
+  | { kind: "dashboard" };
 
 const AMOUNT = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?|\.\d{1,2}`;
 
@@ -28,6 +29,7 @@ export function parseText(input: string, acc: Accounts): Command | null {
   if (lower === "bal" || lower === "balance" || lower === "balances") return { kind: "balances" };
   if (lower === "stats" || lower === "stat") return { kind: "stats" };
   if (lower === "cats" || lower === "categories") return { kind: "categories" };
+  if (lower === "dash" || lower === "dashboard") return { kind: "dashboard" };
 
   const tokens = text.split(" ");
   const head = tokens[0].toLowerCase();
@@ -102,6 +104,10 @@ export function helpText(acc: Accounts): string {
     "📊 Stats",
     "stats",
     "→ today, week, month on Discord",
+    "",
+    "📈 Dashboard",
+    "dash",
+    "→ link to charts and budget",
     "",
     "🏷️ Categories",
     "cats",

@@ -18,4 +18,9 @@ export const config = {
   get geminiModel() { return process.env.GEMINI_MODEL || "gemini-3.5-flash"; },
   get discordWebhookUrl() { return process.env.DISCORD_WEBHOOK_URL || ""; },
   get cronSecret() { return need("CRON_SECRET"); },
+  // Dashboard (LIFF): LINE Login channel in the same provider as the Messaging API channel
+  get lineLoginChannelId() { return need("LINE_LOGIN_CHANNEL_ID"); },
+  get liffId() { return need("NEXT_PUBLIC_LIFF_ID"); },
+  // Local preview with made-up data, never in production
+  get dashDemo() { return process.env.DASH_DEMO === "1" && process.env.NODE_ENV !== "production"; },
 };

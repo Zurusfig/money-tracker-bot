@@ -6,6 +6,7 @@ export const RULES = "_Rules";
 export const ACCOUNTS_TAB = "_Accounts";
 export const BOTLOG = "_BotLog";
 export const CONFIG = "_Config";
+export const BUDGET = "_Budget";
 const CONFIG_HEADER = ["Code", "Account (row 18 header)", "Default (x)", "bal category (blank = Untracked)", "Also called (comma separated)", "Slip names (comma separated)"];
 
 const HEADERS: Record<string, string[]> = {
@@ -17,6 +18,7 @@ const HEADERS: Record<string, string[]> = {
 export async function ensureBotTabs(api: SheetsApi): Promise<void> {
   const tabs = await api.listTabs();
   if (!tabs.some((t) => t.title === CONFIG)) await seedConfig(api);
+  if (!tabs.some((t) => t.title === BUDGET)) await seedBudget(api, tabs.some((t) => t.title === "Budget"));
   for (const [title, header] of Object.entries(HEADERS)) {
     if (tabs.some((t) => t.title === title)) continue;
     await api.addSheet(title, true);
@@ -55,6 +57,44 @@ export async function readAccounts(api: SheetsApi): Promise<Accounts> {
       slipNames: list(r[5]),
     }));
   return new Accounts(defs);
+}
+
+// --- Budget targets (_Budget: category | monthly target) ---
+
+// First run: copy names and targets out of the Budget tab (B6:C25), which may be formulas.
+async function seedBudget(api: SheetsApi, hasBudgetTab: boolean): Promise<void> {
+  const rows = hasBudgetTab ? await get(api, "Budget!B6:C25") : [];
+  const seen = new Set<string>();
+  const out: (string | number)[][] = [];
+  for (const [name, target] of rows) {
+    const cat = String(name ?? "").trim();
+    const t = typeof target === "number" ? target : Number(target);
+    if (cat && t > 0 && !seen.has(cat)) {
+      seen.add(cat);
+      out.push([cat, t]);
+    }
+  }
+  await api.addSheet(BUDGET, false);
+  await api.update(`${q(BUDGET)}!A1:B${out.length + 1}`, [["Category", "Monthly target"], ...out]);
+}
+
+export async function readBudgetTab(api: SheetsApi): Promise<Map<string, { row: number; target: number }>> {
+  const rows = await get(api, `${q(BUDGET)}!A2:B`);
+  const out = new Map<string, { row: number; target: number }>();
+  rows.forEach((r, i) => {
+    const cat = String(r[0] ?? "").trim();
+    const t = typeof r[1] === "number" ? r[1] : Number(r[1]);
+    if (cat && !out.has(cat)) out.set(cat, { row: i + 2, target: Number.isFinite(t) ? t : 0 });
+  });
+  return out;
+}
+
+// target 0 removes the target (keeps the row so its position is stable)
+export async function setBudgetTarget(api: SheetsApi, category: string, target: number): Promise<void> {
+  const existing = (await readBudgetTab(api)).get(category);
+  const value = target > 0 ? Math.round(target * 100) / 100 : "";
+  if (existing) await api.update(`${q(BUDGET)}!B${existing.row}`, [[value]]);
+  else if (target > 0) await api.append(`${q(BUDGET)}!A:B`, [[category, value]]);
 }
 
 // --- Rules ---

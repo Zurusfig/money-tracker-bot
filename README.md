@@ -52,6 +52,11 @@ What I do now:
 6. **At 21:30 every night, read a short summary on Discord** (a chat app). It shows how many entries I made today, which categories are close to their monthly limit, and which rows still need a category. If I logged nothing and didn't send `0`, it says so.
 7. **Any time, check where I stand.** `bal` lists every account's balance right in LINE. `stats` sends a small dashboard to Discord: spending today, this week and this month, top categories against their limits, and the biggest purchases this week.
 8. **On Sundays, check balances.** The summary lists what the sheet thinks each account holds. If one is off, I send `bal k 3200` (my real balance), and the bot adds one small correction row. This replaces the big quarterly correction.
+9. **For the bigger picture, open the dashboard.** Send `dash` (or tap a menu button) and a page opens inside LINE. It shows charts for a day, week, month, quarter or year, how each category is doing against its budget, account balances, and every transaction. I can change monthly budget targets right there.
+
+<p align="center">
+  <img src="docs/images/dashboard.png" alt="Dashboard: spending tiles, spending per day, running total against budget, categories against targets, balances" width="720">
+</p>
 
 ```mermaid
 sequenceDiagram
@@ -124,7 +129,7 @@ The bot works when I test it from my own LINE account on my computer, and its au
 
 ## Technical overview
 
-The bot is a small web app on Vercel (a free hosting service). When I message the bot, LINE forwards the message to the app. The app checks it really came from LINE and from me, reads the sheet's layout, and writes one row through the Google Sheets API (the official way for programs to edit a Google Sheet). Gemini reads slip photos and guesses categories for new words. Once a night, Vercel runs a scheduled job that reads the sheet and posts a summary to Discord. All settings and memory live in the sheet itself: the `_Config` tab holds account names and shortcuts, `_Rules` holds learned words, `_Accounts` holds my own account numbers (so a payment to one of them counts as a transfer between my accounts), and `_BotLog` is the bot's activity log.
+The bot is a small web app on Vercel (a free hosting service). When I message the bot, LINE forwards the message to the app. The app checks it really came from LINE and from me, reads the sheet's layout, and writes one row through the Google Sheets API (the official way for programs to edit a Google Sheet). Gemini reads slip photos and guesses categories for new words. Once a night, Vercel runs a scheduled job that reads the sheet and posts a summary to Discord. All settings and memory live in the sheet itself: the `_Config` tab holds account names and shortcuts, `_Rules` holds learned words, `_Accounts` holds my own account numbers (so a payment to one of them counts as a transfer between my accounts), `_Budget` holds monthly targets, and `_BotLog` is the bot's activity log. The dashboard is a page in the same app. It opens inside LINE through LIFF (LINE's way to run a web page inside the chat app and tell it who you are), so only my LINE account can see it.
 
 ```mermaid
 flowchart LR
@@ -137,6 +142,8 @@ flowchart LR
     Digest -->|read| Sheet
     Digest -->|summary, errors| Discord["Discord channel"]
     Web -->|errors| Discord
+    Phone -->|opens LIFF page| Dash["/dashboard<br/>charts + budget editor"]
+    Dash <-->|read rows, save targets| Sheet
 ```
 
 ---
@@ -155,6 +162,7 @@ flowchart LR
 9. [Customize](#customize)
 10. [Troubleshooting](#troubleshooting)
 11. [Development](#development)
+12. [Dashboard (optional)](#dashboard-optional)
 
 Setup takes about 30 to 45 minutes. Keep a text file open and paste each value into it as you go:
 
@@ -305,6 +313,7 @@ Done. 🎉
 | `+134 food` | Refund: positive amount in that category (only if the word is a known category or rule) |
 | `t b c 500` | Transfer: account `b` to account `c` |
 | `cats` | List your categories |
+| `dash` | Link to the dashboard (charts, budget editor) |
 | `bal` | Every account's balance and the total, in LINE |
 | `bal b 3200` | "My real balance is 3200." Logs the difference as `Untracked` |
 | `stats` | Dashboard on Discord: today, this week (from Monday), this month, categories vs targets, biggest purchases |
@@ -410,6 +419,37 @@ If `_Config` doesn't exist, the bot creates it on the first message from your `_
 | Changed env vars, no effect | Redeploy on Vercel (or restart `npm run dev` locally) |
 
 ---
+
+### Dashboard (optional)
+
+A page with charts and a budget editor, opened from LINE. Only your LINE account gets in.
+
+1. [LINE Developers](https://developers.line.biz/console/) > **the same provider as your bot** > **Create a new channel > LINE Login**. (Same provider matters: LINE gives you a different user ID per provider, and the dashboard checks it against `LINE_USER_ID`.)
+2. In the new channel, **Basic settings**: copy **Channel ID** → `LINE_LOGIN_CHANNEL_ID`.
+3. **LIFF** tab > **Add**:
+   - Size: **Full**
+   - Endpoint URL: `https://<your-app>.vercel.app/dashboard`
+   - Scopes: tick **openid** (needed to prove who you are)
+   - Copy the **LIFF ID** → `NEXT_PUBLIC_LIFF_ID`
+4. Add both to Vercel's Environment Variables and **redeploy**.
+5. Open it: send `dash` to your bot, or add a button in LINE Official Account Manager > **Rich menus** with the link `https://liff.line.me/<LIFF_ID>`.
+
+The channel can stay in "Developing" mode: as its admin you can still log in. On a computer, the same link opens a LINE login page first.
+
+What it shows:
+- **Time scale:** Day, Week, Month, Quarter, Year, with ‹ › to move back and forward.
+- **Tiles:** spent (vs the same days of the previous period), budget used, income, spend per day, days logged.
+- **Charts:** spending per day/week/month; running total against the budget.
+- **Categories** against their targets for that period (a monthly target spread over its days). Tap one to filter the transactions.
+- **Monthly budget:** edit targets per category. They're saved in the `_Budget` tab, which the digest and `stats` also use. On first run `_Budget` is copied from your `Budget` tab; after that, the `Budget` tab is left alone.
+- **Balances** and the **transaction list**.
+
+Quarter tabs in an older layout (header not on row 18) are skipped and listed at the bottom. Comparisons are hidden when the earlier period isn't readable.
+
+**Preview locally with made-up data** (no LINE or Sheets needed):
+```bash
+DASH_DEMO=1 npm run dev     # then open http://localhost:3000/dashboard
+```
 
 ### Development
 

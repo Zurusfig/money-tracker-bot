@@ -158,6 +158,10 @@ export async function runCommand(d: Ctx, cmd: Command, id: string): Promise<Line
       return balances(d, today);
     case "stats":
       return stats(d);
+    case "dashboard": {
+      const id = process.env.NEXT_PUBLIC_LIFF_ID;
+      return [text(id ? `📈 https://liff.line.me/${id}` : "Dashboard isn't set up yet. See README: Dashboard.")];
+    }
     case "categories": {
       const { tab, categories } = await categoriesFor(d, today);
       return [text([`🏷️ Categories · ${tab}`, ...categories.map((c) => `• ${c}`), "", "New one: add #name to an entry, e.g. 450 dog food #pets"].join("\n"))];

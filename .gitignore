@@ -10,3 +10,4 @@ next-env.d.ts
 reference/*.xlsx
 reference/*.json
 !reference/README.md
+AGENTS.md

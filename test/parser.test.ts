@@ -82,3 +82,7 @@ describe("#tag", () => {
     expect(parseText("cats")).toEqual({ kind: "categories" });
   });
 });
+
+describe("dash", () => {
+  it("parses", () => expect(parseText("dash")).toEqual({ kind: "dashboard" }));
+});

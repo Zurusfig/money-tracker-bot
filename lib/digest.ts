@@ -1,6 +1,6 @@
 import { fmt } from "./bot";
 import { get, type SheetsApi } from "./sheets";
-import { ensureBotTabs, readAccounts, readLog } from "./state";
+import { BUDGET, ensureBotTabs, readAccounts, readBudgetTab, readLog } from "./state";
 import { bkkToday, bkkWeekday, daysInMonth, isoDate, quarterTabName, sameDay } from "./time";
 import { UNTRACKED, allRows, readBalances, readQuarter, type ParsedRow } from "./workbook";
 
@@ -18,9 +18,14 @@ function rowLine(r: ParsedRow): string {
   return `${isoDate(r.date)} ${amt > 0 ? "+" : ""}${amt} ${acct}${r.description ? ` "${r.description}"` : ""} (row ${r.row})`;
 }
 
-// Budget!B6:C25: category -> monthly target
+// category -> monthly target, from _Budget (or the Budget tab before _Budget exists)
 export async function readBudget(api: SheetsApi): Promise<Map<string, number>> {
   const tabs = await api.listTabs();
+  if (tabs.some((t) => t.title === BUDGET)) {
+    const out = new Map<string, number>();
+    for (const [cat, { target }] of await readBudgetTab(api)) if (target > 0) out.set(cat, target);
+    return out;
+  }
   const rows = tabs.some((t) => t.title === "Budget") ? await get(api, "Budget!B6:C25") : [];
   const out = new Map<string, number>();
   for (const [name, target] of rows) {
