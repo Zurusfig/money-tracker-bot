@@ -208,7 +208,7 @@ export function matchOwnAccount(own: OwnAccount[], recipientName: string, recipi
 
 // --- Bot log ---
 
-export type LogKind = "write" | "undo" | "delete" | "nospend" | "error" | "lowconf" | "edit" | "bal";
+export type LogKind = "write" | "undo" | "delete" | "nospend" | "error" | "lowconf" | "edit" | "bal" | "quota";
 export type LogRow = { ts: string; date: string; kind: LogKind; tab: string; id: string; detail: string };
 
 export async function log(api: SheetsApi, kind: LogKind, tab: string, id: string, detail = ""): Promise<void> {

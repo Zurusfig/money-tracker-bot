@@ -13,6 +13,9 @@ export type SlipData = {
   category: Field<string>;
 };
 
+// Free-tier quota used up (HTTP 429 / RESOURCE_EXHAUSTED). Resets daily.
+export class QuotaError extends Error {}
+
 export interface Ai {
   categorize(description: string, categories: string[]): Promise<CategoryGuess>;
   readSlip(image: Buffer, mimeType: string, categories: string[]): Promise<SlipData>;
@@ -41,7 +44,11 @@ export class Gemini implements Ai {
         },
       }),
     });
-    if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 300);
+      if (res.status === 429 || /RESOURCE_EXHAUSTED/.test(body)) throw new QuotaError(`Gemini quota: ${body}`);
+      throw new Error(`Gemini ${res.status}: ${body}`);
+    }
     const json = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
     const out = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
     return JSON.parse(out);

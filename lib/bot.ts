@@ -1,5 +1,5 @@
 import type { AccountName, Accounts } from "./accounts";
-import type { Ai } from "./gemini";
+import { QuotaError, type Ai } from "./gemini";
 import { text, type LineApi, type LineMessage, type QuickItem } from "./line";
 import type { Notifier } from "./discord";
 import { helpText, parseText, type Command } from "./parser";
@@ -134,6 +134,21 @@ export async function handleEvent(d: Deps, ev: LineEvent, ownerId: string): Prom
   }
 }
 
+// One Discord alert per day when the Gemini quota runs out, not one per message
+export async function reportQuota(d: Deps) {
+  const today = isoDate(bkkToday());
+  try {
+    if ((await readLog(d.sheets)).some((e) => e.kind === "quota" && e.date === today)) return;
+    await log(d.sheets, "quota", "", "", "gemini free quota used up");
+  } catch {
+    // can't read or write the log: still alert
+  }
+  await d.notify.post(
+    "⚠️ Gemini free quota is used up for today. Typed entries still save (pick categories with the buttons). " +
+      "Slips need to be typed until it resets. If this keeps happening, set GEMINI_MODEL to a Flash-Lite model in Vercel.",
+  ).catch(() => {});
+}
+
 export async function reportError(d: Deps, where: string, msg: string) {
   console.error(where, msg);
   await Promise.allSettled([d.notify.post(`⚠️ money-bot error (${where}): ${msg}`), log(d.sheets, "error", "", "", `${where}: ${msg}`)]);
@@ -200,7 +215,8 @@ async function resolveCategory(d: Ctx, description: string, categories: string[]
     if (g.category && g.confidence >= CATEGORY_MIN_CONFIDENCE) return { category: g.category, lowConfidence: false };
     return { category: "", lowConfidence: true, suggestion: g.newCategory };
   } catch (err) {
-    await reportError(d, "gemini categorize", err instanceof Error ? err.message : String(err));
+    if (err instanceof QuotaError) await reportQuota(d);
+    else await reportError(d, "gemini categorize", err instanceof Error ? err.message : String(err));
   }
   return { category: "", lowConfidence: true };
 }
@@ -450,7 +466,14 @@ async function onImage(d: Ctx, messageId: string): Promise<LineMessage[]> {
   const today = bkkToday(now(d));
   const { categories } = await categoriesFor(d, today);
   const img = await d.line.getContent(messageId);
-  const s = await d.ai.readSlip(img.data, img.mimeType, categories);
+  let s;
+  try {
+    s = await d.ai.readSlip(img.data, img.mimeType, categories);
+  } catch (err) {
+    if (!(err instanceof QuotaError)) throw err;
+    await reportQuota(d);
+    return [text("Gemini's free limit for today is used up, so I can't read slips right now. Send it as text, e.g. 250 lunch")];
+  }
   if (!s.is_slip) return [text("That doesn't look like a payment slip. Nothing logged.")];
   const amount = Math.round(Number(s.amount?.value) * 100) / 100;
   if (!(amount > 0)) return [text("Couldn't read the amount. Send it as text, e.g. 120 lunch")];
