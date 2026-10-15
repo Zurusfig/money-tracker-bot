@@ -2,7 +2,8 @@ import { fmt } from "./bot";
 import { get, type SheetsApi } from "./sheets";
 import { BUDGET, ensureBotTabs, readAccounts, readBudgetTab, readLog } from "./state";
 import { bkkToday, bkkWeekday, daysInMonth, isoDate, quarterTabName, sameDay } from "./time";
-import { UNTRACKED, allRows, readBalances, readQuarter, type ParsedRow } from "./workbook";
+import { readUsable, recentDailySpend, runwayText, type BalanceLine } from "./usable";
+import { UNTRACKED, allRows, readQuarter, type ParsedRow } from "./workbook";
 
 export const NEAR_BUDGET = 0.9;
 
@@ -87,12 +88,14 @@ export async function buildDigest(api: SheetsApi, nowDate: Date = new Date()): P
 
   // Sunday balance check
   if (bkkWeekday(nowDate) === 0 && hasTab) {
-    const bal = await readBalances(api, tab, acc);
-    out.push("**Weekly balance check**");
-    for (const a of acc.list) {
-      const b = bal.get(a.name);
-      if (b) out.push(`- ${a.name} (${a.code}): ${fmt(b.value)}${b.value < 0 ? " (negative)" : ""}`);
-    }
+    const u = await readUsable(api, tab, acc);
+    const perDay = await recentDailySpend(api, acc, today);
+    const fmtLine = (l: BalanceLine) => `- ${l.name} (${l.code}): ${l.value < 0 ? "-" : ""}${fmt(l.value)}${l.value < 0 ? " ⚠️" : ""}`;
+    out.push("**Weekly balance check**", `💳 Usable: **${u.usable < 0 ? "-" : ""}${fmt(u.usable)}** (${runwayText(u.usable, perDay)})`);
+    out.push(...u.lines.filter((l) => l.usable).map(fmtLine));
+    const other = u.lines.filter((l) => !l.usable);
+    if (other.length) out.push("🔒 Not usable", ...other.map(fmtLine));
+    out.push(`Total, all accounts: ${u.total < 0 ? "-" : ""}${fmt(u.total)}`);
     out.push(`Off? Send \`bal <code> <real amount>\`, e.g. \`bal ${acc.default.code} 3200\``);
   }
 

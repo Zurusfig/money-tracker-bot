@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buckets, byCategory, cmp, comparable, covers, elapsed, fetchWindow, grainFor, inRange, kpis, pace,
-  periodLabel, periodOf, shiftPeriod, spentOf, ymd, type Period, type Tx, type View,
+  periodLabel, periodOf, shiftPeriod, spentOf, usableSeries, ymd, type Period, type Tx, type View,
 } from "@/lib/dash";
 import type { DashData } from "@/lib/dashData";
 import { bkkToday, isoDate } from "@/lib/time";
@@ -72,7 +72,7 @@ export default function Dashboard({ liffId, demo }: { liffId: string; demo: bool
   }, [today]);
 
   const load = useCallback(async (p: Period, force = false) => {
-    const w = fetchWindow(p);
+    const w = fetchWindow(p, today);
     const key = `${w.from}_${w.to}`;
     if (!force && cache.current.has(key)) {
       setData(cache.current.get(key)!);
@@ -99,7 +99,7 @@ export default function Dashboard({ liffId, demo }: { liffId: string; demo: bool
       setError(err instanceof Error ? err.message : String(err));
       setStatus("error");
     }
-  }, [demo, liffId]);
+  }, [demo, liffId, today]);
 
   useEffect(() => {
     load(period);
@@ -141,6 +141,13 @@ export default function Dashboard({ liffId, demo }: { liffId: string; demo: bool
   const rows = inPeriod.filter((t) => !catFilter || (t.category || "(no category)") === catFilter).slice().reverse();
   const comp = comparable(period, today);
   const allCats = [...new Set([...data.categories, ...Object.keys(data.budget)])];
+  const usableNames = data.balances.filter((b) => b.usable).map((b) => b.name);
+  const usableVals = grain ? usableSeries(bs, txs, today, data.usable.now, usableNames, data.covered) : [];
+  const runway = data.usable.perDay30 > 0 ? Math.floor(Math.max(0, data.usable.now) / data.usable.perDay30) : null;
+  const usableGroups = [
+    { title: "Usable", rows: data.balances.filter((b) => b.usable) },
+    { title: "Not usable", rows: data.balances.filter((b) => !b.usable) },
+  ].filter((g) => g.rows.length);
 
   return (
     <div className="dash">
@@ -174,7 +181,31 @@ export default function Dashboard({ liffId, demo }: { liffId: string; demo: bool
 
         {!e && <p className="sub">This period hasn&apos;t started yet.</p>}
 
-        <div className="grid tiles">
+        <div className="card hero">
+          <div>
+            <div className="k">💳 Usable now</div>
+            <div className="hero-v" style={data.usable.now < 0 ? { color: "var(--critical)" } : undefined}>
+              {data.usable.now < 0 ? "−" : ""}{baht(Math.abs(data.usable.now))}
+            </div>
+            <div className="d">
+              {runway === null ? "No recent spending to estimate from" : <>Lasts <strong>~{runway} {runway === 1 ? "day" : "days"}</strong> at {baht(data.usable.perDay30)}/day (30-day average)</>}
+            </div>
+            <div className="sub" style={{ marginTop: 6 }}>Total, all accounts {baht(data.usable.total)}</div>
+          </div>
+          {grain && usableVals.some((v) => v !== null) && (
+            <div>
+              <div className="sub" style={{ marginBottom: 4 }}>Usable money, end of each {grain}</div>
+              <LineChart
+                ariaLabel="Usable money over time" legend={false} height={150}
+                labels={bs.map((b) => b.label)}
+                titles={bs.map((b) => (grain === "day" ? isoDate(b.from) : `end of ${isoDate(cmp(b.to, today) > 0 ? today : b.to)}`))}
+                series={[{ name: "Usable", color: "var(--series-1)", values: usableVals }]}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="grid tiles" style={{ marginTop: 12 }}>
           <div className="card tile">
             <div className="k">Spent</div>
             <div className="v">{baht(k.spent)}</div>
@@ -267,16 +298,24 @@ export default function Dashboard({ liffId, demo }: { liffId: string; demo: bool
             <div className="card">
               <h2>Balances</h2>
               <table className="list num">
-                <tbody>
-                  {data.balances.map((b) => (
-                    <tr key={b.name}>
-                      <td>{b.name} <span className="pill">{b.code}</span></td>
-                      <td className="r" style={b.value < 0 ? { color: "var(--critical)" } : undefined}>{b.value < 0 ? "−" : ""}{baht(Math.abs(b.value))}</td>
+                {usableGroups.map((g) => (
+                  <tbody key={g.title}>
+                    <tr>
+                      <td><strong>{g.title === "Usable" ? "💳 Usable" : "🔒 Not usable"}</strong></td>
+                      <td className="r"><strong>{baht(g.rows.reduce((s, b) => s + b.value, 0))}</strong></td>
                     </tr>
-                  ))}
+                    {g.rows.map((b) => (
+                      <tr key={b.name}>
+                        <td style={{ paddingLeft: 16 }}>{b.name} <span className="pill">{b.code}</span></td>
+                        <td className="r" style={b.value < 0 ? { color: "var(--critical)" } : undefined}>{b.value < 0 ? "−" : ""}{baht(Math.abs(b.value))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                ))}
+                <tbody>
                   <tr>
-                    <td><strong>Total</strong></td>
-                    <td className="r"><strong>{baht(data.balances.reduce((s, b) => s + b.value, 0))}</strong></td>
+                    <td className="muted">Total, all accounts</td>
+                    <td className="r muted">{baht(data.usable.total)}</td>
                   </tr>
                 </tbody>
               </table>

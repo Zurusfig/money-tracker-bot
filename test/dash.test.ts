@@ -137,3 +137,44 @@ describe("loading from the sheet", () => {
     expect(() => parseRange(null, "2026-10-01")).toThrow();
   });
 });
+
+describe("usable over time", () => {
+  it("walks today's usable balance back through usable-account changes", async () => {
+    const { usableSeries } = await import("@/lib/dash");
+    const today = d("2026-10-15");
+    const p = periodOf("week", today); // Mon 12 .. Sun 18
+    const txs: Tx[] = [
+      { ...tx("2026-10-12", -100), amounts: { "K-Bank": -100 } },
+      { ...tx("2026-10-14", -50), amounts: { Make: -50 } },
+      { ...tx("2026-10-14", 0, "", "Transfer"), amounts: { "K-Bank": -1000, Savings: 1000 } },
+      { ...tx("2026-10-15", -20), amounts: { Savings: -20 } }, // not usable: no effect
+    ];
+    const v = usableSeries(buckets(p, txs, today), txs, today, 500, ["K-Bank", "Make"], ["2026 Q4"]);
+    expect(v).toEqual([1550, 1550, 500, 500, null, null, null]);
+  });
+
+  it("returns null where a quarter in between couldn't be read", async () => {
+    const { usableSeries } = await import("@/lib/dash");
+    const today = d("2026-10-02");
+    const p = periodOf("week", today); // Mon 28 Sep ..
+    const v = usableSeries(buckets(p, [], today), [], today, 500, ["K-Bank"], ["2026 Q4"]);
+    expect(v.slice(0, 5)).toEqual([null, null, 500, 500, 500]); // end of 30 Sep only needs October rows
+  });
+
+  it("fetches through today unless that's too long", async () => {
+    const { fetchWindow } = await import("@/lib/dash");
+    const today = d("2026-10-15");
+    expect(fetchWindow(periodOf("month", d("2026-08-10")), today)).toEqual({ from: "2026-07-01", to: "2026-10-15" });
+    expect(fetchWindow(periodOf("year", d("2023-05-01")), today)).toEqual({ from: "2022-01-01", to: "2023-12-31" });
+  });
+
+  it("loadDashData marks usable accounts from K2", async () => {
+    const s = fixture();
+    const r = parseRange("2026-10-01", "2026-10-15");
+    const data = await loadDashData(s, r.from, r.to, new Date("2026-10-15T05:00:00Z"));
+    expect(data.balances.filter((b) => !b.usable).map((b) => b.name)).toEqual(["Savings"]);
+    expect(data.usable.source).toBe("sheet");
+    expect(data.usable.now).toBe(900);
+    expect(data.usable.total).toBe(1000);
+  });
+});

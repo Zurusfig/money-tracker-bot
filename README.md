@@ -50,7 +50,7 @@ What I do now:
 4. **Fix it with one tap if needed.** Buttons let me change the account or category, or delete the row. When I fix a category, the bot remembers that word for next time.
 5. **If I spent nothing today, send `0`.** That way "no entries" and "forgot to log" are not the same thing.
 6. **At 21:30 every night, read a short summary on Discord** (a chat app). It shows how many entries I made today, which categories are close to their monthly limit, and which rows still need a category. If I logged nothing and didn't send `0`, it says so.
-7. **Any time, check where I stand.** `bal` lists every account's balance right in LINE. `stats` sends a small dashboard to Discord: spending today, this week and this month, top categories against their limits, and the biggest purchases this week.
+7. **Any time, check where I stand.** `bal` shows my *usable* money first (what I can spend day to day, so not savings) and roughly how many days it lasts at my recent pace, then the other accounts and the total. `stats` sends a small dashboard to Discord: spending today, this week and this month, top categories against their limits, and the biggest purchases this week.
 8. **On Sundays, check balances.** The summary lists what the sheet thinks each account holds. If one is off, I send `bal k 3200` (my real balance), and the bot adds one small correction row. This replaces the big quarterly correction.
 9. **For the bigger picture, open the dashboard.** Send `dash` (or tap a menu button) and a page opens inside LINE. It shows charts for a day, week, month, quarter or year, how each category is doing against its budget, account balances, and every transaction. I can change monthly budget targets right there.
 
@@ -314,7 +314,7 @@ Done. 🎉
 | `t b c 500` | Transfer: account `b` to account `c` |
 | `cats` | List your categories |
 | `dash` | Link to the dashboard (charts, budget editor) |
-| `bal` | Every account's balance and the total, in LINE |
+| `bal` | Usable money and how many days it lasts, each account, then the total |
 | `bal b 3200` | "My real balance is 3200." Logs the difference as `Untracked` |
 | `stats` | Dashboard on Discord: today, this week (from Monday), this month, categories vs targets, biggest purchases |
 | `undo` | Removes the last row the bot wrote |
@@ -350,7 +350,7 @@ New categories (from `#tag` or the ➕ button) go into the first empty slot in P
 - Daily: today's entries and total. If you logged nothing and didn't send `0`, it says so.
 - Daily: categories near or over their monthly target.
 - Daily: rows that need review.
-- Sundays: every account balance, so you can send `bal` for any that are off.
+- Sundays: usable money first, then every account, so you can send `bal` for any that are off.
 - Last day of the month: days logged, Untracked total, rows without a category.
 
 ---
@@ -371,6 +371,8 @@ All settings live in the sheet. No redeploy needed.
 | Slip names | Words printed on slips from this bank/app, e.g. `k plus, kbank` |
 
 To add an account: type the name in an empty `_Template` row 18 column (E to N) **and** in the current quarter tab, then add a `_Config` row.
+
+**Usable money** is read from the quarter tab's **K2** ("Sum of Usable"), e.g. `=SUM(C2:C4,C6:C7,C9:C12)`: every balance row in that sum counts as usable. Change K2 in the sheet to change what's usable. If K2 isn't a plain `SUM` of C cells, every account except ones named "Savings" counts.
 
 **`_Accounts`** (hidden): your own account numbers or wallet names, so payments to them count as transfers.
 
@@ -442,7 +444,8 @@ What it shows:
 - **Charts:** spending per day/week/month; running total against the budget.
 - **Categories** against their targets for that period (a monthly target spread over its days). Tap one to filter the transactions.
 - **Monthly budget:** edit targets per category. They're saved in the `_Budget` tab, which the digest and `stats` also use. On first run `_Budget` is copied from your `Budget` tab; after that, the `Budget` tab is left alone.
-- **Balances** and the **transaction list**.
+- **Usable now** at the top: the money you can spend day to day, how many days it lasts at your 30-day average, and a line of how it moved over the period. The total of all accounts is shown smaller.
+- **Balances** split into usable and not usable, and the **transaction list**.
 
 Quarter tabs in an older layout (header not on row 18) are skipped and listed at the bottom. Comparisons are hidden when the earlier period isn't readable.
 

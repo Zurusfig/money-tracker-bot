@@ -110,8 +110,8 @@ export function BarChart({ data, height = 200, ariaLabel }: { data: BarDatum[]; 
 export type LineSeries = { name: string; color: string; values: (number | null)[] };
 
 // One axis, crosshair snaps to the nearest point, one tooltip lists every series
-export function LineChart({ labels, titles, series, height = 200, ariaLabel }: {
-  labels: string[]; titles: string[]; series: LineSeries[]; height?: number; ariaLabel: string;
+export function LineChart({ labels, titles, series, height = 200, ariaLabel, legend = true }: {
+  labels: string[]; titles: string[]; series: LineSeries[]; height?: number; ariaLabel: string; legend?: boolean;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
@@ -141,11 +141,13 @@ export function LineChart({ labels, titles, series, height = 200, ariaLabel }: {
 
   return (
     <div className="chart" ref={ref}>
-      <div className="legend">
-        {series.map((s) => (
-          <span key={s.name}><i className="key" style={{ background: s.color }} />{s.name}</span>
-        ))}
-      </div>
+      {legend && (
+        <div className="legend">
+          {series.map((s) => (
+            <span key={s.name}><i className="key" style={{ background: s.color }} />{s.name}</span>
+          ))}
+        </div>
+      )}
       {width > 0 && n > 0 && (
         <svg width={width} height={height} role="img" aria-label={ariaLabel}>
           {ticks.map((t) => (

@@ -4,6 +4,7 @@ import { text, type LineApi, type LineMessage, type QuickItem } from "./line";
 import type { Notifier } from "./discord";
 import { helpText, parseText, type Command } from "./parser";
 import { buildStats } from "./stats";
+import { readUsable, recentDailySpend, runwayText, type BalanceLine } from "./usable";
 import type { Cell, SheetsApi } from "./sheets";
 import {
   ensureBotTabs, lastLiveWrite, log, matchCategoryName, matchOwnAccount, matchRule,
@@ -293,17 +294,21 @@ function signed(n: number): string {
 
 async function balances(d: Ctx, today: Ymd): Promise<LineMessage[]> {
   const tab = await ensureQuarter(d.sheets, today, d.acc);
-  const bal = await readBalances(d.sheets, tab, d.acc);
-  const lines: string[] = [];
-  let total = 0;
-  for (const a of d.acc.list) {
-    const b = bal.get(a.name);
-    if (!b) continue;
-    total += b.value;
-    lines.push(`${a.name} (${a.code}): ${signed(b.value)}${b.value < 0 ? " ⚠️" : ""}`);
-  }
-  if (!lines.length) return [text(`No balances found in ${tab} C2:D14.`)];
-  return [text([`💳 Balances · ${tab}`, ...lines, `Total: ${signed(Math.round(total * 100) / 100)}`, "", `Off? Send bal ${d.acc.default.code} <real amount>`].join("\n"))];
+  const u = await readUsable(d.sheets, tab, d.acc);
+  if (!u.lines.length) return [text(`No balances found in ${tab} C2:D14.`)];
+  const perDay = await recentDailySpend(d.sheets, d.acc, today);
+  const line = (l: BalanceLine) => `${l.name} (${l.code}): ${signed(l.value)}${l.value < 0 ? " ⚠️" : ""}`;
+  const other = u.lines.filter((l) => !l.usable);
+  return [text([
+    `💳 Usable: ${signed(u.usable)}`,
+    runwayText(u.usable, perDay),
+    "",
+    ...u.lines.filter((l) => l.usable).map(line),
+    ...(other.length ? ["", "🔒 Not usable", ...other.map(line)] : []),
+    "",
+    `Total, all accounts: ${signed(u.total)}`,
+    `Off? Send bal ${d.acc.default.code} <real amount>`,
+  ].join("\n"))];
 }
 
 async function stats(d: Ctx): Promise<LineMessage[]> {

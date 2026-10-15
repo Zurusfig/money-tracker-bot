@@ -234,9 +234,34 @@ export function kpis(p: Period, txs: Tx[], today: Ymd, budget: Record<string, nu
   };
 }
 
-// Date window to fetch: the period plus the previous one (for comparisons)
-export function fetchWindow(p: Period): { from: string; to: string } {
-  return { from: isoDate(shiftPeriod(p, -1).from), to: isoDate(maxY(p.to, p.from)) };
+export const MAX_FETCH_DAYS = 800;
+
+// Date window to fetch: the previous period (for comparisons) through today
+// (to walk the usable balance back from today), unless that gets too long
+export function fetchWindow(p: Period, today?: Ymd): { from: string; to: string } {
+  const from = shiftPeriod(p, -1).from;
+  const toToday = today ? maxY(p.to, today) : p.to;
+  const to = daysBetween(from, toToday) <= MAX_FETCH_DAYS ? toToday : p.to;
+  return { from: isoDate(from), to: isoDate(to) };
+}
+
+// Usable balance at the end of each bucket: today's usable minus usable-account changes since then.
+// null for future buckets, or when a quarter tab in between couldn't be read.
+export function usableSeries(bs: Bucket[], txs: Tx[], today: Ymd, usableNow: number, usable: string[], covered: string[]): (number | null)[] {
+  const set = new Set(usable);
+  const todayS = isoDate(today);
+  return bs.map((b) => {
+    if (b.future) return null;
+    const end = minY(b.to, today);
+    if (cmp(end, today) < 0 && !covers(covered, addDays(end, 1), today)) return null;
+    const endS = isoDate(end);
+    let delta = 0;
+    for (const t of txs) {
+      if (t.date <= endS || t.date > todayS) continue;
+      for (const [a, v] of Object.entries(t.amounts)) if (set.has(a)) delta += v;
+    }
+    return Math.round((usableNow - delta) * 100) / 100;
+  });
 }
 
 export function quarterTabsBetween(from: Ymd, to: Ymd): string[] {

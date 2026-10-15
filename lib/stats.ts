@@ -4,6 +4,7 @@ import { readBudget, spent } from "./digest";
 import { fmt } from "./bot";
 import type { SheetsApi } from "./sheets";
 import { readLog } from "./state";
+import { readUsable, runwayText } from "./usable";
 import {
   MONTHS, addDays, bkkToday, isoDate, prevQuarterTabName, quarterTabName, weekdayOf, type Ymd,
 } from "./time";
@@ -135,9 +136,17 @@ export async function buildStats(api: SheetsApi, acc: Accounts, now: Date = new 
     { name: "❓ Needs a category", value: `${blank} rows${untracked > 0 ? `\nUntracked ${baht(untracked)}` : ""}`, inline: true },
   );
 
+  // Usable money leads; total is secondary
+  let usableLine = "";
+  if (tabs.has(quarterTabName(today))) {
+    const u = await readUsable(api, quarterTabName(today), acc);
+    const last30 = between(rows, addDays(today, -29), today);
+    usableLine = `💳 Usable now **${u.usable < 0 ? "-" : ""}${baht(u.usable)}** · ${runwayText(u.usable, Math.max(0, spent(last30) / 30))}\nTotal, all accounts ${baht(u.total)}\n\n`;
+  }
+
   return {
     title: `📊 Spending · ${label(today)} ${today.y}`,
-    description: `Week from ${label(weekStart)} · Month from ${label(monthStart)}`,
+    description: `${usableLine}Week from ${label(weekStart)} · Month from ${label(monthStart)}`,
     color: 0x2ecc71,
     fields,
     footer: { text: "Spending = expenses minus refunds. Transfers and income not included." },

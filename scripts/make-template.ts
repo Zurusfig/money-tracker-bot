@@ -8,7 +8,7 @@ import { colLetter } from "../lib/sheets";
 type Config = {
   year: number;
   quarter: number;
-  accounts: { code: string; name: string; default?: boolean; balCategory?: string; slipNames?: string[] }[];
+  accounts: { code: string; name: string; default?: boolean; balCategory?: string; slipNames?: string[]; usable?: boolean }[];
   categories: { name: string; monthlyTarget?: number }[];
 };
 
@@ -57,6 +57,12 @@ acctCols.forEach((col, i) => {
   });
   t.getCell(`C${r}`).value = { formula: `IF($D${r}="","",SUM(E${r}:H${r}))` };
 });
+// K2 "Usable": accounts you can spend day to day (the bot reads this formula)
+t.getCell("K1").value = "Sum of Usable";
+t.getCell("K1").font = bold;
+const usableRows = cfg.accounts.map((a, i) => (a.usable === false ? null : `C${i + 2}`)).filter(Boolean);
+t.getCell("K2").value = { formula: `SUM(${usableRows.join(",") || "C2"})` };
+
 const totalRow = MAX_ACCOUNTS + 3;
 t.getCell(`D${totalRow}`).value = "Total";
 t.getCell(`D${totalRow}`).font = bold;

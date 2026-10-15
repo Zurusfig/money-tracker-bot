@@ -129,3 +129,9 @@ table.list td.r, table.list th.r { text-align: right; }
 .txs .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .txs .amt { flex: none; font-weight: 500; }
 .txs .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+.hero { display: grid; gap: 12px; align-items: center; }
+.hero .k { font-size: 13px; color: var(--text-secondary); }
+.hero-v { font-size: 34px; font-weight: 700; margin: 2px 0 4px; }
+.hero .d { font-size: 14px; color: var(--text-secondary); }
+@media (min-width: 760px) { .hero { grid-template-columns: 300px 1fr; } }

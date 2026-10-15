@@ -99,7 +99,7 @@ export function helpText(acc: Accounts): string {
     "",
     "💳 All balances",
     "bal",
-    "→ every account, here in LINE",
+    "→ usable money first, then the rest",
     "",
     "📊 Stats",
     "stats",

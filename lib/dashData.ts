@@ -3,7 +3,8 @@ export { quarterTabsBetween };
 import type { SheetsApi } from "./sheets";
 import { ensureBotTabs, readAccounts, readBudgetTab, readLog, setBudgetTarget } from "./state";
 import { bkkToday, isoDate, parseIso, quarterTabName, type Ymd } from "./time";
-import { TEMPLATE, allRows, readBalances, readCategories, readQuarter } from "./workbook";
+import { readUsable, recentDailySpend } from "./usable";
+import { TEMPLATE, allRows, readCategories, readQuarter } from "./workbook";
 
 export type DashData = {
   today: string;
@@ -12,7 +13,8 @@ export type DashData = {
   txs: Tx[];
   categories: string[];
   budget: Record<string, number>;
-  balances: { name: string; code: string; value: number }[];
+  balances: { name: string; code: string; value: number; usable: boolean }[];
+  usable: { now: number; total: number; perDay30: number; source: "sheet" | "default" };
   noSpend: string[];
   skipped: string[]; // quarter tabs in an older layout the bot can't read
   covered: string[]; // quarter tabs read successfully
@@ -59,7 +61,8 @@ export async function loadDashData(api: SheetsApi, from: Ymd, to: Ymd, now = new
 
   const current = quarterTabName(today);
   const catTab = titles.has(current) ? current : TEMPLATE;
-  const balances = titles.has(current) ? await readBalances(api, current, acc) : new Map();
+  const u = titles.has(current) ? await readUsable(api, current, acc) : null;
+  const perDay30 = await recentDailySpend(api, acc, today);
   const budget: Record<string, number> = {};
   for (const [cat, { target }] of await readBudgetTab(api)) if (target > 0) budget[cat] = target;
   const log = titles.has("_BotLog") ? await readLog(api) : [];
@@ -71,7 +74,8 @@ export async function loadDashData(api: SheetsApi, from: Ymd, to: Ymd, now = new
     txs,
     categories: await readCategories(api, catTab),
     budget,
-    balances: acc.list.filter((x) => balances.has(x.name)).map((x) => ({ name: x.name, code: x.code, value: balances.get(x.name)!.value })),
+    balances: u ? u.lines : [],
+    usable: { now: u?.usable ?? 0, total: u?.total ?? 0, perDay30: Math.round(perDay30 * 100) / 100, source: u?.source ?? "default" },
     noSpend: [...new Set(log.filter((l) => l.kind === "nospend").map((l) => l.detail || l.date))],
     skipped,
     covered,

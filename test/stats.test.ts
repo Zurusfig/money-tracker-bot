@@ -17,8 +17,8 @@ describe("bal (all balances)", () => {
     rows.forEach((r, i) => s.setCell("2026 Q4", r, 2, i === 2 ? -5 : 100 + i));
     await handleEvent(deps, textEvent("bal"), OWNER);
     const t = lastText(replies);
-    expect(t).toMatch(/^💳 Balances · 2026 Q4\nK-Bank \(k\): 100\nMake \(m\): 101\nSCB \(s\): -5 ⚠️/);
-    expect(t).toMatch(/Savings \(sv\): 109\nTotal: 938\n\nOff\? Send bal k <real amount>$/);
+    expect(t).toMatch(/^💳 Usable: 829\nlasts ~\d+ days at ฿\d+\/day \(30-day average\)\n\nK-Bank \(k\): 100\nMake \(m\): 101\nSCB \(s\): -5 ⚠️/);
+    expect(t).toMatch(/GWallet \(g\): 108\n\n🔒 Not usable\nSavings \(sv\): 109\n\nTotal, all accounts: 938\nOff\? Send bal k <real amount>$/);
   });
 });
 
@@ -36,7 +36,7 @@ describe("stats", () => {
     expect(lastText(replies)).toBe("📊 Stats sent to Discord.");
     const e = embeds[0];
     expect(e.title).toBe("📊 Spending · Sun 11 Oct 2026");
-    expect(e.description).toBe("Week from Mon 5 Oct · Month from Thu 1 Oct");
+    expect(e.description).toMatch(/^💳 Usable now \*\*฿900\*\* · lasts ~\d+ days at ฿\d+\/day \(30-day average\)\nTotal, all accounts ฿1,000\n\nWeek from Mon 5 Oct · Month from Thu 1 Oct$/);
     expect(field(e, "Today")).toBe("**฿80**\n3 entries");
     expect(amount(field(e, "This week"))).toBe(amount(field(before, "This week")) + 80);
     expect(amount(field(e, "This month"))).toBe(amount(field(before, "This month")) + 80);
@@ -51,7 +51,7 @@ describe("stats", () => {
     // Friday 2 Oct: week starts Mon 28 Sep, which is in 2026 Q3
     await s.update("'2026 Q3'!A84:E84", [["2026-09-29", "Expense", "Shopping", "late Sept", -300]]);
     const e = await buildStats(s, BUILTIN_ACCOUNTS, new Date("2026-10-02T05:00:00Z"));
-    expect(e.description).toBe("Week from Mon 28 Sep · Month from Thu 1 Oct");
+    expect(e.description).toMatch(/Week from Mon 28 Sep · Month from Thu 1 Oct$/);
     expect(field(e, "Biggest")).toMatch(/฿300 · Shopping · late Sept \(Tue\)/);
     expect(amount(field(e, "This week"))).toBeGreaterThanOrEqual(300);
   });
