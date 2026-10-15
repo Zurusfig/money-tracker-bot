@@ -56,6 +56,8 @@ describe("daily digest", () => {
     expect(out).toMatch(/K-Bank \(k\): 1,234.5/);
     expect(out).toMatch(/Savings \(sv\)/);
     expect(out).toMatch(/bal k 3200/);
+    expect(out).toMatch(/📏 Captured this month: \d+% \(Aug \S+ · Sep \S+ · Oct \S+\)/);
+    expect(out).toMatch(/Not checked in 14\+ days: .*Line Pay \(never\)/);
     expect(await buildDigest(s, new Date(FRI))).not.toMatch(/Weekly balance check/);
   });
 
@@ -71,5 +73,6 @@ describe("daily digest", () => {
     expect(out).toMatch(/Days with an entry or `0`: 5 \/ 31/);
     expect(out).toMatch(/Untracked total: 40/);
     expect(out).toMatch(/Expense rows without a category: \d+/);
+    expect(out).toMatch(/📏 Logging accuracy: \d+% captured, [\d,]+ unlogged/);
   });
 });

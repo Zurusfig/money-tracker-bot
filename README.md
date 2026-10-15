@@ -51,7 +51,7 @@ What I do now:
 5. **If I spent nothing today, send `0`.** That way "no entries" and "forgot to log" are not the same thing.
 6. **At 21:30 every night, read a short summary on Discord** (a chat app). It shows how many entries I made today, which categories are close to their monthly limit, and which rows still need a category. If I logged nothing and didn't send `0`, it says so.
 7. **Any time, check where I stand.** `bal` shows my *usable* money first (what I can spend day to day, so not savings) and roughly how many days it lasts at my recent pace, then the other accounts and the total. `stats` sends a small dashboard to Discord: spending today, this week and this month, top categories against their limits, and the biggest purchases this week.
-8. **On Sundays, check balances.** The summary lists what the sheet thinks each account holds. If one is off, I send `bal k 3200` (my real balance), and the bot adds one small correction row. This replaces the big quarterly correction.
+8. **On Sundays, check balances.** The summary lists what the sheet thinks each account holds and which accounts haven't been checked in two weeks. If one is off, I send `bal k 3200` (my real balance). The bot adds one small correction row and tells me how much of that account's spending I actually logged since the last check, e.g. "฿2,100 logged, ฿350 unlogged → 86% captured". `missed` shows the same by month, so I can see whether I'm getting better at logging, and how far off my usable money could be right now.
 9. **For the bigger picture, open the dashboard.** Send `dash` (or tap a menu button) and a page opens inside LINE. It shows charts for a day, week, month, quarter or year, how each category is doing against its budget, account balances, and every transaction. I can change monthly budget targets right there.
 
 <p align="center">
@@ -315,7 +315,8 @@ Done. 🎉
 | `cats` | List your categories |
 | `dash` | Link to the dashboard (charts, budget editor) |
 | `bal` | Usable money and how many days it lasts, each account, then the total |
-| `bal b 3200` | "My real balance is 3200." Logs the difference as `Untracked` |
+| `bal b 3200` | "My real balance is 3200." Logs the difference as `Untracked` and shows how much you captured since that account's last check |
+| `missed` | Logging accuracy: % of spending captured this month and the last 3 months, when each usable account was last checked, how far off usable money could be |
 | `stats` | Dashboard on Discord: today, this week (from Monday), this month, categories vs targets, biggest purchases |
 | `undo` | Removes the last row the bot wrote |
 | `0` | "I spent nothing today" |
@@ -350,7 +351,8 @@ New categories (from `#tag` or the ➕ button) go into the first empty slot in P
 - Daily: today's entries and total. If you logged nothing and didn't send `0`, it says so.
 - Daily: categories near or over their monthly target.
 - Daily: rows that need review.
-- Sundays: usable money first, then every account, so you can send `bal` for any that are off.
+- Sundays: usable money first, then every account, so you can send `bal` for any that are off. Also this month's capture %, accounts not checked in 14+ days, and how far off usable money could be.
+- Last day of the month also: capture % this month vs last month.
 - Last day of the month: days logged, Untracked total, rows without a category.
 
 ---
@@ -371,6 +373,8 @@ All settings live in the sheet. No redeploy needed.
 | Slip names | Words printed on slips from this bank/app, e.g. `k plus, kbank` |
 
 To add an account: type the name in an empty `_Template` row 18 column (E to N) **and** in the current quarter tab, then add a `_Config` row.
+
+**Logging accuracy.** Every `bal` check is saved in the hidden `_Checks` tab (also the ones that matched exactly). "Unlogged" is money found missing at a check: rows the `bal` command writes (description `bal check`) and your manual `Recalibrate` rows. **Captured** = logged spending / (logged + unlogged). The "could be ~฿X lower" estimate uses your miss rate per account over the last 90 days × days since that account's last check.
 
 **Usable money** is read from the quarter tab's **K2** ("Sum of Usable"), e.g. `=SUM(C2:C4,C6:C7,C9:C12)`: every balance row in that sum counts as usable. Change K2 in the sheet to change what's usable. If K2 isn't a plain `SUM` of C cells, every account except ones named "Savings" counts.
 
@@ -445,6 +449,7 @@ What it shows:
 - **Categories** against their targets for that period (a monthly target spread over its days). Tap one to filter the transactions.
 - **Monthly budget:** edit targets per category. They're saved in the `_Budget` tab, which the digest and `stats` also use. On first run `_Budget` is copied from your `Budget` tab; after that, the `Budget` tab is left alone.
 - **Usable now** at the top: the money you can spend day to day, how many days it lasts at your 30-day average, and a line of how it moved over the period. The total of all accounts is shown smaller.
+- **Logging accuracy:** % of spending captured in the period (vs the same days before), money found missing per day/week/month, and when each usable account was last checked. The Usable card also warns how much lower usable money could be.
 - **Balances** split into usable and not usable, and the **transaction list**.
 
 Quarter tabs in an older layout (header not on row 18) are skipped and listed at the bottom. Comparisons are hidden when the earlier period isn't readable.

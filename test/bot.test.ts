@@ -196,7 +196,7 @@ describe("typed entries", () => {
     sheets.setCell(Q4, 9, 2, 50); // Rabbit
     await send(textEvent("bal k 3200"));
     expect(row(sheets, 46).slice(0, 5)).toEqual([46304, "Expense", "Untracked", "bal check", -120.5]);
-    expect(lastText(replies)).toBe("K-Bank gap -120.5 (sheet 3,320.5, real 3,200). Logged as Untracked.");
+    expect(lastText(replies)).toBe("K-Bank was off by -120.5 (sheet 3,320.5, real 3,200). Logged as Untracked.\n📏 Since last check 4 days ago: ฿0 logged, ฿121 unlogged → 0% captured.");
     await send(textEvent("bal r 33"));
     expect(row(sheets, 47).slice(1, 3)).toEqual(["Expense", "Transportation"]);
     expect(sheets.getCell(Q4, 47, 9)).toBe(-17);

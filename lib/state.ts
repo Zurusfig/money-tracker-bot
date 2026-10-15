@@ -1,4 +1,5 @@
 import { Accounts, seedAccounts, type AccountDef, type AccountName } from "./accounts";
+import type { Check } from "./accuracy";
 import { get, q, type SheetsApi } from "./sheets";
 import { bkkToday, isoDate } from "./time";
 
@@ -7,12 +8,14 @@ export const ACCOUNTS_TAB = "_Accounts";
 export const BOTLOG = "_BotLog";
 export const CONFIG = "_Config";
 export const BUDGET = "_Budget";
+export const CHECKS = "_Checks";
 const CONFIG_HEADER = ["Code", "Account (row 18 header)", "Default (x)", "bal category (blank = Untracked)", "Also called (comma separated)", "Slip names (comma separated)"];
 
 const HEADERS: Record<string, string[]> = {
   [RULES]: ["Keyword", "Category", "Updated"],
   [ACCOUNTS_TAB]: ["Match (name or account number digits)", "Account", "Note"],
   [BOTLOG]: ["Timestamp", "Date", "Kind", "Tab", "ID", "Detail"],
+  [CHECKS]: ["Date", "Account", "Sheet balance", "Real balance", "Gap", "ID"],
 };
 
 export async function ensureBotTabs(api: SheetsApi): Promise<void> {
@@ -95,6 +98,27 @@ export async function setBudgetTarget(api: SheetsApi, category: string, target: 
   const value = target > 0 ? Math.round(target * 100) / 100 : "";
   if (existing) await api.update(`${q(BUDGET)}!B${existing.row}`, [[value]]);
   else if (target > 0) await api.append(`${q(BUDGET)}!A:B`, [[category, value]]);
+}
+
+// --- Balance checks (one row per `bal <code> <amount>`, including exact matches) ---
+
+export async function readChecks(api: SheetsApi): Promise<Check[]> {
+  if (!(await api.listTabs()).some((t) => t.title === CHECKS)) return [];
+  const rows = await get(api, `${q(CHECKS)}!A2:F`);
+  return rows
+    .map((r) => ({
+      date: String(r[0] ?? ""),
+      account: String(r[1] ?? ""),
+      sheet: Number(r[2]) || 0,
+      real: Number(r[3]) || 0,
+      gap: Number(r[4]) || 0,
+      id: String(r[5] ?? ""),
+    }))
+    .filter((c) => /^\d{4}-\d{2}-\d{2}$/.test(c.date) && c.account);
+}
+
+export async function addCheck(api: SheetsApi, c: Check): Promise<void> {
+  await api.append(`${q(CHECKS)}!A:F`, [[`'${c.date}`, c.account, c.sheet, c.real, c.gap, `'${c.id}`]]);
 }
 
 // --- Rules ---

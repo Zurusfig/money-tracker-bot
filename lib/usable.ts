@@ -1,6 +1,6 @@
 // "Usable" money: the accounts summed in the quarter tab's K2 ("Sum of Usable"), e.g. =SUM(C2:C4,C6:C7,C9:C12).
 import type { AccountName, Accounts } from "./accounts";
-import { spent } from "./digest";
+import { spentOf, type Tx } from "./dash";
 import { get, q, type SheetsApi } from "./sheets";
 import { addDays, isoDate, prevQuarterTabName, quarterTabName, type Ymd } from "./time";
 import { allRows, readBalances, readQuarter } from "./workbook";
@@ -48,21 +48,29 @@ export async function readUsable(api: SheetsApi, tab: string, acc: Accounts): Pr
   };
 }
 
-// Average net spend per day over the last `days` days (today included), from this and last quarter's tabs
-export async function recentDailySpend(api: SheetsApi, acc: Accounts, today: Ymd, days = 30): Promise<number> {
+// Rows from this and last quarter's tabs as plain transactions (older layouts skipped)
+export async function recentTxs(api: SheetsApi, acc: Accounts, today: Ymd): Promise<Tx[]> {
   const titles = new Set((await api.listTabs()).map((t) => t.title));
-  const from = isoDate(addDays(today, -(days - 1)));
-  const to = isoDate(today);
-  const rows = [];
+  const out: Tx[] = [];
   for (const tab of [prevQuarterTabName(today), quarterTabName(today)]) {
     if (!titles.has(tab)) continue;
     try {
-      rows.push(...allRows(await readQuarter(api, tab, acc)).filter((r) => isoDate(r.date) >= from && isoDate(r.date) <= to));
+      for (const r of allRows(await readQuarter(api, tab, acc))) {
+        out.push({ date: isoDate(r.date), type: r.type, category: r.category, description: r.description, amounts: r.amounts as Record<string, number>, tab, row: r.row });
+      }
     } catch {
       // older layout: skip
     }
   }
-  return Math.max(0, spent(rows) / days);
+  return out;
+}
+
+// Average net spend per day over the last `days` days (today included)
+export async function recentDailySpend(api: SheetsApi, acc: Accounts, today: Ymd, days = 30, txs?: Tx[]): Promise<number> {
+  const from = isoDate(addDays(today, -(days - 1)));
+  const to = isoDate(today);
+  const rows = (txs ?? (await recentTxs(api, acc, today))).filter((t) => t.date >= from && t.date <= to);
+  return Math.max(0, spentOf(rows) / days);
 }
 
 // Whole days the usable money lasts at a daily spend; null when it can't be estimated

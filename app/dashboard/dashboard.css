@@ -135,3 +135,6 @@ table.list td.r, table.list th.r { text-align: right; }
 .hero-v { font-size: 34px; font-weight: 700; margin: 2px 0 4px; }
 .hero .d { font-size: 14px; color: var(--text-secondary); }
 @media (min-width: 760px) { .hero { grid-template-columns: 300px 1fr; } }
+
+.acc { grid-template-columns: 1fr; gap: 16px; }
+@media (min-width: 760px) { .acc { grid-template-columns: 220px 1fr 240px; } }

@@ -10,7 +10,8 @@ export type Command =
   | { kind: "balances" }
   | { kind: "stats" }
   | { kind: "categories" }
-  | { kind: "dashboard" };
+  | { kind: "dashboard" }
+  | { kind: "missed" };
 
 const AMOUNT = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?|\.\d{1,2}`;
 
@@ -30,6 +31,7 @@ export function parseText(input: string, acc: Accounts): Command | null {
   if (lower === "stats" || lower === "stat") return { kind: "stats" };
   if (lower === "cats" || lower === "categories") return { kind: "categories" };
   if (lower === "dash" || lower === "dashboard") return { kind: "dashboard" };
+  if (lower === "missed" || lower === "accuracy") return { kind: "missed" };
 
   const tokens = text.split(" ");
   const head = tokens[0].toLowerCase();
@@ -115,7 +117,11 @@ export function helpText(acc: Accounts): string {
     "",
     "⚖️ Fix a balance",
     `bal ${def.code} 3200`,
-    "→ logs the gap as Untracked",
+    "→ logs the gap, shows % captured",
+    "",
+    "📏 Accuracy",
+    "missed",
+    "→ how much you forget to log",
     "",
     "📷 Slip photo",
     "→ logged automatically",

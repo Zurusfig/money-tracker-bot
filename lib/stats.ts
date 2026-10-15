@@ -5,6 +5,8 @@ import { fmt } from "./bot";
 import type { SheetsApi } from "./sheets";
 import { readLog } from "./state";
 import { readUsable, runwayText } from "./usable";
+import { pct } from "./accuracy";
+import { buildReport, driftLine, monthLine } from "./accuracyReport";
 import {
   MONTHS, addDays, bkkToday, isoDate, prevQuarterTabName, quarterTabName, weekdayOf, type Ymd,
 } from "./time";
@@ -124,6 +126,7 @@ export async function buildStats(api: SheetsApi, acc: Accounts, now: Date = new 
     });
   }
 
+  const report = await buildReport(api, acc, today);
   let income = 0;
   for (const r of monthRows) if (r.type === "Income") for (const v of Object.values(r.amounts)) income += v ?? 0;
   const days = new Set(monthRows.map((r) => isoDate(r.date)));
@@ -131,6 +134,7 @@ export async function buildStats(api: SheetsApi, acc: Accounts, now: Date = new 
   const blank = monthRows.filter((r) => r.type === "Expense" && !r.category).length;
   const untracked = spent(monthRows.filter((r) => r.category === UNTRACKED));
   fields.push(
+    { name: "📏 Logging accuracy", value: `**${pct(report.month.captured)}** captured this month · ${baht(report.month.unlogged)} unlogged\n${monthLine(report)}${driftLine(report) ? `\n${driftLine(report)}` : ""}` },
     { name: "💰 Income this month", value: baht(income), inline: true },
     { name: "✍️ Days logged", value: `${days.size} / ${today.d}`, inline: true },
     { name: "❓ Needs a category", value: `${blank} rows${untracked > 0 ? `\nUntracked ${baht(untracked)}` : ""}`, inline: true },

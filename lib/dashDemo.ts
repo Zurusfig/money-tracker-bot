@@ -28,6 +28,8 @@ function rng(seed: number) {
   };
 }
 
+const addDaysIso = (d: Ymd, n: number) => isoDate(addDays(d, n));
+
 function demoTxs(today: Ymd): Tx[] {
   const r = rng(42);
   const out: Tx[] = [];
@@ -35,6 +37,8 @@ function demoTxs(today: Ymd): Tx[] {
   for (let d: Ymd = { y: today.y - 1, m: today.m, d: 1 }; isoDate(d) <= isoDate(today); d = addDays(d, 1)) {
     const date = isoDate(d);
     if (d.d === 1) out.push({ date, type: "Income", category: "", description: "allowance", amounts: { "K-Bank": 7000 }, tab: "demo", row: row++ });
+    // a correction every ~10 days, like real bal checks
+    if (d.d % 10 === 0) out.push({ date, type: "Expense", category: "Untracked", description: "bal check", amounts: { "K-Bank": -Math.round(80 + r() * 400) }, tab: "demo", row: row++ });
     for (const [cat, p, lo, hi] of CATS) {
       if (r() > p) continue;
       const amt = Math.round(lo + r() * (hi - lo));
@@ -62,6 +66,10 @@ export function demoData(from: Ymd, to: Ymd): DashData {
       { name: "Rabbit", code: "r", value: 92, usable: true }, { name: "True-money", code: "t", value: -12, usable: true },
       { name: "Savings", code: "sv", value: 25000, usable: false },
     ],
+    accuracy: {
+      lastChecked: { "K-Bank": addDaysIso(today, -2), Make: addDaysIso(today, -9), SCB: addDaysIso(today, -20), "Cash-Wallet": addDaysIso(today, -5), Rabbit: null, "True-money": addDaysIso(today, -30) },
+      drift: 350, neverChecked: ["Rabbit"], missPerDay: 39,
+    },
     usable: { now: 9401.1, total: 34401.1, perDay30: 405, source: "sheet" },
     noSpend: [],
     skipped: [],

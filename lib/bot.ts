@@ -4,13 +4,17 @@ import { text, type LineApi, type LineMessage, type QuickItem } from "./line";
 import type { Notifier } from "./discord";
 import { helpText, parseText, type Command } from "./parser";
 import { buildStats } from "./stats";
-import { readUsable, recentDailySpend, runwayText, type BalanceLine } from "./usable";
+import { accuracyOf, lastChecked } from "./accuracy";
+import { buildReport, checkLine, reportText } from "./accuracyReport";
+import { readUsable, recentDailySpend, recentTxs, runwayText, type BalanceLine } from "./usable";
 import type { Cell, SheetsApi } from "./sheets";
 import {
-  ensureBotTabs, lastLiveWrite, log, matchCategoryName, matchOwnAccount, matchRule,
+  addCheck, ensureBotTabs, lastLiveWrite, log, matchCategoryName, readChecks, matchOwnAccount, matchRule,
   readAccounts, readLog, readOwnAccounts, readRules, saveRule,
 } from "./state";
-import { bkkToday, isoDate, parseIso, quarterTabName, type Ymd } from "./time";
+import { addDays, bkkToday, isoDate, parseIso, quarterTabName, type Ymd } from "./time";
+
+const ymdOf = (s: string) => parseIso(s)!;
 import {
   TEMPLATE, UNTRACKED, addCategory, clearRow, ensureQuarter, ensureUntracked, findRowById, readBalances,
   readCategories, readQuarter, readRow, updateCells, writeEntry, type Entry, type ParsedRow,
@@ -159,6 +163,8 @@ export async function runCommand(d: Ctx, cmd: Command, id: string): Promise<Line
       return balances(d, today);
     case "stats":
       return stats(d);
+    case "missed":
+      return missed(d, today);
     case "dashboard": {
       const id = process.env.NEXT_PUBLIC_LIFF_ID;
       return [text(id ? `📈 https://liff.line.me/${id}` : "Dashboard isn't set up yet. See README: Dashboard.")];
@@ -276,16 +282,41 @@ async function bal(d: Ctx, account: AccountName, actual: number, id: string, tod
   const balances = await readBalances(d.sheets, tab, d.acc);
   const sheet = balances.get(account);
   if (!sheet) throw new Error(`${tab}: no balance row for ${account}`);
+  const checks = await readChecks(d.sheets);
+  if (checks.some((c) => c.id === id)) return [text("Already checked.")];
   const gap = Math.round((actual - sheet.value) * 100) / 100;
-  if (gap === 0) return [text(`${account} matches the sheet (${fmt(actual)}). Nothing logged.`)];
-  const category = d.acc.balCategory(account) || UNTRACKED;
-  const res = await writeEntry(d.sheets, {
-    date: today, type: "Expense", category, description: "bal check", amounts: { [account]: gap }, id,
-  }, d.acc);
-  if (res.duplicate) return [text(`Already logged (${res.tab} row ${res.row}).`)];
-  await log(d.sheets, "write", res.tab, id, `bal ${account} ${gap}`);
-  const dir = gap < 0 ? "-" : "+";
-  return [text(`${account} gap ${dir}${fmt(gap)} (sheet ${fmt(sheet.value)}, real ${fmt(actual)}). Logged as ${category}.`, rowButtons(res.tab, id))];
+  const todayS = isoDate(today);
+
+  // Logged spending on this account since its previous check (before writing today's gap row)
+  const txs = await recentTxs(d.sheets, d.acc, today);
+  const prev = lastChecked(checks, txs, [account]).get(account) ?? null;
+  const since = prev ? accuracyOf(txs, isoDate(addDays(ymdOf(prev), 1)), todayS, [account]) : null;
+
+  let head: string;
+  let buttons: QuickItem[] = [];
+  if (gap === 0) {
+    head = `✅ ${account} matches the sheet (${fmt(actual)}). Nothing logged.`;
+  } else {
+    const category = d.acc.balCategory(account) || UNTRACKED;
+    const res = await writeEntry(d.sheets, {
+      date: today, type: "Expense", category, description: "bal check", amounts: { [account]: gap }, id,
+    }, d.acc);
+    if (res.duplicate) return [text(`Already logged (${res.tab} row ${res.row}).`)];
+    await log(d.sheets, "write", res.tab, id, `bal ${account} ${gap}`);
+    buttons = rowButtons(res.tab, id);
+    head = gap < 0
+      ? `${account} was off by -${fmt(gap)} (sheet ${fmt(sheet.value)}, real ${fmt(actual)}). Logged as ${category}.`
+      : `${account} has +${fmt(gap)} more than the sheet (sheet ${fmt(sheet.value)}, real ${fmt(actual)}): probably unlogged income or a refund, or something logged twice. Logged as ${category}.`;
+  }
+  await addCheck(d.sheets, { date: todayS, account, sheet: sheet.value, real: actual, gap, id });
+  const a = since ? { ...since, unlogged: since.unlogged + Math.max(0, -gap), captured: null as number | null } : null;
+  if (a) a.captured = a.logged + a.unlogged > 0 ? a.logged / (a.logged + a.unlogged) : null;
+  return [text(`${head}\n${checkLine(account, prev, todayS, a ?? { logged: 0, unlogged: 0, extra: 0, captured: null }, gap)}`, buttons)];
+}
+
+async function missed(d: Ctx, today: Ymd): Promise<LineMessage[]> {
+  const r = await buildReport(d.sheets, d.acc, today);
+  return [text(reportText(r, d.acc.default.code))];
 }
 
 function signed(n: number): string {

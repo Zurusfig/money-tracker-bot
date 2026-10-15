@@ -8,6 +8,7 @@ import {
 import type { DashData } from "@/lib/dashData";
 import { bkkToday, isoDate } from "@/lib/time";
 import { BarChart, LineChart, baht } from "./charts";
+import { accuracyOf, ago, daysApart, pct } from "@/lib/accuracy";
 import "./dashboard.css";
 
 const VIEWS: { v: View; label: string }[] = [
@@ -144,6 +145,10 @@ export default function Dashboard({ liffId, demo }: { liffId: string; demo: bool
   const usableNames = data.balances.filter((b) => b.usable).map((b) => b.name);
   const usableVals = grain ? usableSeries(bs, txs, today, data.usable.now, usableNames, data.covered) : [];
   const runway = data.usable.perDay30 > 0 ? Math.floor(Math.max(0, data.usable.now) / data.usable.perDay30) : null;
+  const accNow = e ? accuracyOf(txs, isoDate(e.from), isoDate(e.to)) : null;
+  const accPrev = comp0 && fair ? accuracyOf(txs, isoDate(comp0.from), isoDate(comp0.to)) : null;
+  const unloggedBars = grain ? bs.map((b) => ({ ...b, unlogged: accuracyOf(txs, isoDate(b.from), isoDate(b.to)).unlogged })) : [];
+  const todayS = isoDate(today);
   const usableGroups = [
     { title: "Usable", rows: data.balances.filter((b) => b.usable) },
     { title: "Not usable", rows: data.balances.filter((b) => !b.usable) },
@@ -190,6 +195,11 @@ export default function Dashboard({ liffId, demo }: { liffId: string; demo: bool
             <div className="d">
               {runway === null ? "No recent spending to estimate from" : <>Lasts <strong>~{runway} {runway === 1 ? "day" : "days"}</strong> at {baht(data.usable.perDay30)}/day (30-day average)</>}
             </div>
+            {data.accuracy.drift > 0 && (
+              <div className="d" style={{ marginTop: 6 }}>
+                ⚠ Could be ~{baht(data.accuracy.drift)} lower: you usually miss ~{baht(data.accuracy.missPerDay)}/day since each account&apos;s last check
+              </div>
+            )}
             <div className="sub" style={{ marginTop: 6 }}>Total, all accounts {baht(data.usable.total)}</div>
           </div>
           {grain && usableVals.some((v) => v !== null) && (
@@ -264,6 +274,50 @@ export default function Dashboard({ liffId, demo }: { liffId: string; demo: bool
             </div>
           </div>
         )}
+
+        <div className="card" style={{ marginTop: 12 }}>
+          <h2>📏 Logging accuracy</h2>
+          <div className="grid acc">
+            <div>
+              <div className="hero-v" style={{ fontSize: 30 }}>{accNow ? pct(accNow.captured) : "–"}</div>
+              <div className="d">of spending logged{accNow && accNow.captured !== null ? "" : " (nothing to judge yet)"}</div>
+              {accNow && (
+                <div className="sub" style={{ marginTop: 6 }}>
+                  {baht(accNow.logged)} logged · {baht(accNow.unlogged)} unlogged{accNow.extra > 0 ? ` · ${baht(accNow.extra)} extra` : ""}
+                </div>
+              )}
+              {accPrev && accPrev.captured !== null && accNow && accNow.captured !== null && (
+                <div className="sub">{PREV[period.view].replace(/^same days /, "Same days ").replace(/^yesterday/, "Yesterday")}: {pct(accPrev.captured)}</div>
+              )}
+              <p className="sub" style={{ marginTop: 8 }}>Unlogged = money found missing at a balance check (<code>bal</code>) or a Recalibrate row.</p>
+            </div>
+            {grain && unloggedBars.some((b) => b.unlogged > 0) ? (
+              <div>
+                <div className="sub" style={{ marginBottom: 4 }}>Found missing per {grain}</div>
+                <BarChart
+                  ariaLabel={`Unlogged money per ${grain}`} height={150}
+                  data={unloggedBars.map((b) => ({ key: b.key, label: b.label, value: b.unlogged, future: b.future, title: grain === "day" ? isoDate(b.from) : `${isoDate(b.from)} to ${isoDate(b.to)}` }))}
+                />
+              </div>
+            ) : <div className="sub">No gaps found in this period.</div>}
+            <div>
+              <div className="sub" style={{ marginBottom: 4 }}>Last checked</div>
+              <table className="list">
+                <tbody>
+                  {Object.entries(data.accuracy.lastChecked).map(([a, d]) => {
+                    const stale = !d || daysApart(d, todayS) > 14;
+                    return (
+                      <tr key={a}>
+                        <td>{a}</td>
+                        <td className="r" style={stale ? { color: "var(--critical)" } : undefined}>{stale ? "⚠ " : ""}{ago(d, todayS)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
 
         <div className="grid two" style={{ marginTop: 12 }}>
           <div className="card">

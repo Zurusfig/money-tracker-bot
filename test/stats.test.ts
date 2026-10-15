@@ -43,6 +43,7 @@ describe("stats", () => {
     expect(field(e, "Categories")).toMatch(/Coffee & Tea +[█░]{10} \d+ \/ 1,000/);
     expect(field(e, "Biggest")).toMatch(/^฿100 · Coffee & Tea · coffee \(Sun\)/);
     expect(amount(field(e, "Income"))).toBeGreaterThanOrEqual(5000);
+    expect(field(e, "Logging accuracy")).toMatch(/^\*\*\d+%\*\* captured this month · ฿[\d,]+ unlogged\nAug \S+ · Sep \S+ · Oct \S+/);
     expect(e.fields.every((f) => f.value.length <= 1024)).toBe(true);
   });
 

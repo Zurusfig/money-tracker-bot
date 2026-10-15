@@ -3,6 +3,8 @@ import { get, type SheetsApi } from "./sheets";
 import { BUDGET, ensureBotTabs, readAccounts, readBudgetTab, readLog } from "./state";
 import { bkkToday, bkkWeekday, daysInMonth, isoDate, quarterTabName, sameDay } from "./time";
 import { readUsable, recentDailySpend, runwayText, type BalanceLine } from "./usable";
+import { ago, daysApart, pct } from "./accuracy";
+import { STALE_DAYS, buildReport, driftLine, monthLine } from "./accuracyReport";
 import { UNTRACKED, allRows, readQuarter, type ParsedRow } from "./workbook";
 
 export const NEAR_BUDGET = 0.9;
@@ -96,6 +98,15 @@ export async function buildDigest(api: SheetsApi, nowDate: Date = new Date()): P
     const other = u.lines.filter((l) => !l.usable);
     if (other.length) out.push("🔒 Not usable", ...other.map(fmtLine));
     out.push(`Total, all accounts: ${u.total < 0 ? "-" : ""}${fmt(u.total)}`);
+    const r = await buildReport(api, acc, today);
+    const stale = r.usableAccounts.filter((a) => {
+      const d = r.last.get(a) ?? null;
+      return !d || daysApart(d, r.today) > STALE_DAYS;
+    });
+    out.push(`📏 Captured this month: ${pct(r.month.captured)} (${monthLine(r)})`);
+    if (stale.length) out.push(`Not checked in ${STALE_DAYS}+ days: ${stale.map((a) => `${a} (${ago(r.last.get(a) ?? null, r.today)})`).join(", ")}`);
+    const dl = driftLine(r);
+    if (dl) out.push(dl);
     out.push(`Off? Send \`bal <code> <real amount>\`, e.g. \`bal ${acc.default.code} 3200\``);
   }
 
@@ -111,6 +122,12 @@ export async function buildDigest(api: SheetsApi, nowDate: Date = new Date()): P
       `- Days with an entry or \`0\`: ${days.size} / ${today.d}`,
       `- Untracked total: ${fmt(untracked)}`,
       `- Expense rows without a category: ${blank}`,
+    );
+    const r = await buildReport(api, acc, today);
+    const prevM = r.months[r.months.length - 2];
+    out.push(
+      `- 📏 Logging accuracy: ${pct(r.month.captured)} captured, ${fmt(r.month.unlogged)} unlogged` +
+        (prevM && prevM.captured !== null ? ` (last month ${pct(prevM.captured)})` : ""),
     );
   }
   return out.join("\n");

@@ -3,7 +3,8 @@ export { quarterTabsBetween };
 import type { SheetsApi } from "./sheets";
 import { ensureBotTabs, readAccounts, readBudgetTab, readLog, setBudgetTarget } from "./state";
 import { bkkToday, isoDate, parseIso, quarterTabName, type Ymd } from "./time";
-import { readUsable, recentDailySpend } from "./usable";
+import { buildReport } from "./accuracyReport";
+import { readUsable, recentDailySpend, recentTxs } from "./usable";
 import { TEMPLATE, allRows, readCategories, readQuarter } from "./workbook";
 
 export type DashData = {
@@ -15,6 +16,12 @@ export type DashData = {
   budget: Record<string, number>;
   balances: { name: string; code: string; value: number; usable: boolean }[];
   usable: { now: number; total: number; perDay30: number; source: "sheet" | "default" };
+  accuracy: {
+    lastChecked: Record<string, string | null>; // usable accounts
+    drift: number; // usable could be this much lower
+    neverChecked: string[];
+    missPerDay: number;
+  };
   noSpend: string[];
   skipped: string[]; // quarter tabs in an older layout the bot can't read
   covered: string[]; // quarter tabs read successfully
@@ -62,7 +69,9 @@ export async function loadDashData(api: SheetsApi, from: Ymd, to: Ymd, now = new
   const current = quarterTabName(today);
   const catTab = titles.has(current) ? current : TEMPLATE;
   const u = titles.has(current) ? await readUsable(api, current, acc) : null;
-  const perDay30 = await recentDailySpend(api, acc, today);
+  const recent = await recentTxs(api, acc, today);
+  const perDay30 = await recentDailySpend(api, acc, today, 30, recent);
+  const report = await buildReport(api, acc, today, { txs: recent });
   const budget: Record<string, number> = {};
   for (const [cat, { target }] of await readBudgetTab(api)) if (target > 0) budget[cat] = target;
   const log = titles.has("_BotLog") ? await readLog(api) : [];
@@ -75,6 +84,12 @@ export async function loadDashData(api: SheetsApi, from: Ymd, to: Ymd, now = new
     categories: await readCategories(api, catTab),
     budget,
     balances: u ? u.lines : [],
+    accuracy: {
+      lastChecked: Object.fromEntries(report.usableAccounts.map((a) => [a, report.last.get(a) ?? null])),
+      drift: report.drift.amount,
+      neverChecked: report.drift.neverChecked,
+      missPerDay: Math.round(report.missPerDay * 100) / 100,
+    },
     usable: { now: u?.usable ?? 0, total: u?.total ?? 0, perDay30: Math.round(perDay30 * 100) / 100, source: u?.source ?? "default" },
     noSpend: [...new Set(log.filter((l) => l.kind === "nospend").map((l) => l.detail || l.date))],
     skipped,
