@@ -133,3 +133,32 @@ export class GoogleSheets implements SheetsApi {
     ]);
   }
 }
+
+// Read cache for one request: identical reads hit the API once; any write clears it.
+export function withReadCache(api: SheetsApi): SheetsApi {
+  let reads = new Map<string, Promise<Cell[][][]>>();
+  let tabs: Promise<TabInfo[]> | null = null;
+  const clear = () => {
+    reads = new Map();
+    tabs = null;
+  };
+  const write = <A extends unknown[]>(fn: (...a: A) => Promise<void>) => async (...a: A) => {
+    clear();
+    await fn(...a);
+    clear();
+  };
+  return {
+    listTabs: () => (tabs ??= api.listTabs()),
+    batchGet: (ranges, render = "UNFORMATTED_VALUE") => {
+      const key = JSON.stringify([ranges, render]);
+      if (!reads.has(key)) reads.set(key, api.batchGet(ranges, render));
+      return reads.get(key)!;
+    },
+    update: write(api.update.bind(api)),
+    append: write(api.append.bind(api)),
+    clear: write(api.clear.bind(api)),
+    addSheet: write(api.addSheet.bind(api)),
+    duplicateSheet: write(api.duplicateSheet.bind(api)),
+    insertRows: write(api.insertRows.bind(api)),
+  };
+}

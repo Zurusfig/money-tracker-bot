@@ -178,3 +178,22 @@ describe("usable over time", () => {
     expect(data.usable.total).toBe(1000);
   });
 });
+
+describe("habit helpers", () => {
+  it("streaks: today in progress, no-spend counts, best run", async () => {
+    const { streaks } = await import("@/lib/dash");
+    const days = { "2026-10-10": { n: 2, spent: 50 }, "2026-10-12": { n: 1, spent: 10 }, "2026-10-13": { n: 1, spent: 10 }, "2026-10-14": { n: 3, spent: 90 } };
+    expect(streaks(days, ["2026-10-11"], "2026-10-08", d("2026-10-15"))).toEqual({ current: 5, best: 5, logged: 5, total: 8 });
+    expect(streaks(days, [], "2026-10-08", d("2026-10-15"))).toMatchObject({ current: 3, best: 3 });
+  });
+
+  it("heat levels by quantile, weekday averages, by account", async () => {
+    const { heatLevels, weekdayAverages, byAccount } = await import("@/lib/dash");
+    const lv = heatLevels({ a: { n: 1, spent: 10 }, b: { n: 1, spent: 20 }, c: { n: 1, spent: 30 }, e: { n: 1, spent: 1000 } });
+    expect([0, 10, 20, 30, 1000].map(lv)).toEqual([0, 1, 2, 3, 4]);
+    const w = weekdayAverages([tx("2026-10-12", -70), tx("2026-10-19", -30)], d("2026-10-12"), d("2026-10-25"));
+    expect(w[0]).toEqual({ label: "Mon", avg: 50, days: 2 });
+    expect(byAccount([tx("2026-10-12", -70), { ...tx("2026-10-12", -30), amounts: { Make: -30 } }, tx("2026-10-13", 7000, "", "Income")]))
+      .toEqual([{ name: "K-Bank", spent: 70 }, { name: "Make", spent: 30 }]);
+  });
+});

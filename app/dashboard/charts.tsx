@@ -1,6 +1,9 @@
 "use client";
 
+import { motion } from "motion/react";
+import { Check } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { addDays, isoDate, parseIso, weekdayOf, MONTHS } from "@/lib/time";
 
 export const baht = (n: number) => `฿${Math.round(n).toLocaleString("en-US")}`;
 
@@ -48,7 +51,9 @@ function Tip({ x, y, children }: { x: number; y: number; children: ReactNode }) 
 
 export type BarDatum = { key: string; label: string; value: number; future?: boolean; title: string };
 
-export function BarChart({ data, height = 200, ariaLabel }: { data: BarDatum[]; height?: number; ariaLabel: string }) {
+export function BarChart({ data, height = 200, ariaLabel, animKey = "", onSelect }: {
+  data: BarDatum[]; height?: number; ariaLabel: string; animKey?: string; onSelect?: (i: number) => void;
+}) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const plotW = Math.max(0, width - PAD.left - PAD.right);
@@ -78,10 +83,14 @@ export function BarChart({ data, height = 200, ariaLabel }: { data: BarDatum[]; 
             return (
               <g key={d.key}>
                 {bh > 0 && (
-                  <path
+                  <motion.path
+                    key={`${animKey}-${d.key}`}
                     d={barPath(x, y(d.value), bw, bh)}
                     fill="var(--series-1)"
-                    opacity={hover === null || hover === i ? 1 : 0.55}
+                    style={{ transformBox: "fill-box", transformOrigin: "50% 100%" }}
+                    initial={{ scaleY: 0 }}
+                    animate={{ scaleY: 1, opacity: hover === null || hover === i ? 1 : 0.55 }}
+                    transition={{ type: "spring", visualDuration: 0.4, bounce: 0, delay: Math.min(i * 0.008, 0.25) }}
                   />
                 )}
                 {i % every === 0 && (
@@ -91,6 +100,9 @@ export function BarChart({ data, height = 200, ariaLabel }: { data: BarDatum[]; 
                   x={PAD.left + i * col} y={PAD.top} width={col} height={plotH} fill="transparent" tabIndex={0}
                   aria-label={`${d.title}: ${baht(d.value)}`}
                   onPointerEnter={() => setHover(i)} onFocus={() => setHover(i)} onBlur={() => setHover(null)}
+                  onClick={onSelect && !d.future ? () => onSelect(i) : undefined}
+                  onKeyDown={onSelect && !d.future ? (e) => { if (e.key === "Enter" || e.key === " ") onSelect(i); } : undefined}
+                  style={onSelect && !d.future ? { cursor: "pointer" } : undefined}
                 />
               </g>
             );
@@ -193,6 +205,116 @@ export function LineChart({ labels, titles, series, height = 200, ariaLabel, leg
           ))}
         </Tip>
       )}
+    </div>
+  );
+}
+
+// --- Logging heat map: one column per week (Mon..Sun), colour = how much was spent ---
+
+export type HeatDay = { n: number; spent: number };
+const WD = ["Mon", "", "Wed", "", "Fri", "", ""];
+
+export function HeatMap({ from, today, days, noSpend, level, onSelect }: {
+  from: string; today: string; days: Record<string, HeatDay>; noSpend: Set<string>; level: (spent: number) => number; onSelect: (date: string) => void;
+}) {
+  const [ref, width] = useWidth<HTMLDivElement>();
+  const [hover, setHover] = useState<{ date: string; x: number; y: number } | null>(null);
+  const first = parseIso(from)!;
+  const end = parseIso(today)!;
+  const allWeeks = Math.ceil((Date.UTC(end.y, end.m - 1, end.d) - Date.UTC(first.y, first.m - 1, first.d)) / 86400000 / 7) + 1;
+  const left = 26;
+  const top = 16;
+  const gap = 3;
+  // Keep squares tappable (>= 12px): on narrow screens show only the most recent weeks that fit
+  const weeks = Math.max(1, Math.min(allWeeks, Math.floor((width - left) / (12 + gap))));
+  const start = addDays(first, (allWeeks - weeks) * 7);
+  const cell = Math.max(12, Math.min(18, Math.floor((width - left) / weeks) - gap));
+  const step = cell + gap;
+  const h = top + 7 * step;
+
+  const cells: { date: string; col: number; row: number }[] = [];
+  const monthMarks: { col: number; label: string }[] = [];
+  for (let d = start, i = 0; isoDate(d) <= today; d = addDays(d, 1), i++) {
+    const col = Math.floor(i / 7);
+    cells.push({ date: isoDate(d), col, row: (weekdayOf(d) + 6) % 7 });
+    if (d.d <= 7 && (weekdayOf(d) + 6) % 7 === 0) monthMarks.push({ col, label: MONTHS[d.m - 1].slice(0, 3).replace(/^./, (c) => c.toUpperCase()) });
+  }
+  const info = hover ? days[hover.date] : null;
+
+  return (
+    <div className="chart" ref={ref} onPointerLeave={() => setHover(null)}>
+      {width > 0 && (
+        <svg width={Math.min(width, left + weeks * step)} height={h} role="img" aria-label="Logging heat map, one square per day">
+          {monthMarks.map((m) => <text key={m.col} className="tick" x={left + m.col * step} y={10}>{m.label}</text>)}
+          {WD.map((w, r) => w && <text key={w} className="tick" x={0} y={top + r * step + cell / 2} dy="0.32em">{w}</text>)}
+          {cells.map((c) => {
+            const d = days[c.date];
+            const ns = noSpend.has(c.date) && !(d && d.n > 0);
+            const logged = (d && d.n > 0) || ns;
+            const lv = d && d.n > 0 ? level(d.spent) : 0;
+            const x = left + c.col * step;
+            const y = top + c.row * step;
+            const fill = !logged ? "transparent" : lv === 0 ? "var(--heat-0)" : `var(--heat-${lv})`;
+            return (
+              <g key={c.date}>
+                <motion.rect
+                  x={x + 0.5} y={y + 0.5} width={cell - 1} height={cell - 1} rx={3}
+                  fill={fill} stroke={!logged ? "var(--axis)" : c.date === today ? "var(--text-primary)" : "none"} strokeWidth={1}
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  transition={{ duration: 0.25, delay: Math.min(c.col * 0.012, 0.35) }}
+                />
+                {ns && cell >= 10 && (
+                  <Check x={x + cell * 0.2} y={y + cell * 0.2} width={cell * 0.6} height={cell * 0.6} color="var(--good)" strokeWidth={3} aria-hidden />
+                )}
+                <rect
+                  x={x - 1} y={y - 1} width={step} height={step} fill="transparent" tabIndex={0} style={{ cursor: "pointer" }}
+                  aria-label={`${c.date}: ${ns ? "no-spend day" : d && d.n > 0 ? `${d.n} entries, ${baht(d.spent)}` : "nothing logged"}`}
+                  onPointerEnter={() => setHover({ date: c.date, x: x + cell / 2, y })}
+                  onFocus={() => setHover({ date: c.date, x: x + cell / 2, y })}
+                  onClick={() => onSelect(c.date)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onSelect(c.date); }}
+                />
+              </g>
+            );
+          })}
+        </svg>
+      )}
+      {hover && (
+        <Tip x={hover.x} y={hover.y}>
+          <strong className="num">{info && info.n > 0 ? baht(info.spent) : noSpend.has(hover.date) ? "No-spend day" : "Nothing logged"}</strong>
+          <span className="muted">{hover.date}{info && info.n > 0 ? ` · ${info.n} ${info.n === 1 ? "entry" : "entries"}` : ""}</span>
+        </Tip>
+      )}
+      <div className="heat-legend">
+        <span>Less</span>
+        {[0, 1, 2, 3, 4].map((l) => <i key={l} style={{ background: `var(--heat-${l})` }} />)}
+        <span>More</span>
+        <span className="sep" />
+        <i className="ns"><Check size={9} color="var(--good)" strokeWidth={3} aria-hidden /></i><span>No-spend</span>
+        <i className="miss" /><span>Not logged</span>
+      </div>
+    </div>
+  );
+}
+
+// Simple ranked horizontal bars (one series, values in the label)
+export function HBars({ rows, onSelect }: { rows: { name: string; value: number; note?: string }[]; onSelect?: (name: string) => void }) {
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  return (
+    <div className="hbars">
+      {rows.map((r, i) => (
+        <button key={r.name} className="hbar" onClick={onSelect ? () => onSelect(r.name) : undefined} disabled={!onSelect}>
+          <span className="name">{r.name}</span>
+          <span className="track" aria-hidden>
+            <motion.span
+              className="fill" style={{ width: `${(r.value / max) * 100}%`, transformOrigin: "0% 50%" }}
+              initial={{ scaleX: 0 }} animate={{ scaleX: 1 }}
+              transition={{ type: "spring", visualDuration: 0.45, bounce: 0, delay: i * 0.03 }}
+            />
+          </span>
+          <span className="val num">{baht(r.value)}{r.note ? <span className="muted"> {r.note}</span> : null}</span>
+        </button>
+      ))}
     </div>
   );
 }

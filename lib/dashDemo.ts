@@ -1,8 +1,8 @@
 // Made-up data for previewing the dashboard locally (DASH_DEMO=1, never in production).
 import type { Tx } from "./dash";
 import { quarterTabsBetween } from "./dash";
-import type { DashData } from "./dashData";
-import { addDays, bkkToday, isoDate, type Ymd } from "./time";
+import { HEAT_WEEKS, heatFrom, type DashData } from "./dashData";
+import { addDays, bkkToday, isoDate, weekdayOf, type Ymd } from "./time";
 
 const CATS: [string, number, number, number][] = [
   // name, chance per day, min, max
@@ -30,12 +30,22 @@ function rng(seed: number) {
 
 const addDaysIso = (d: Ymd, n: number) => isoDate(addDays(d, n));
 
+const DEMO_NOSPEND: string[] = [];
+
 function demoTxs(today: Ymd): Tx[] {
+  DEMO_NOSPEND.length = 0;
   const r = rng(42);
   const out: Tx[] = [];
   let row = 20;
   for (let d: Ymd = { y: today.y - 1, m: today.m, d: 1 }; isoDate(d) <= isoDate(today); d = addDays(d, 1)) {
     const date = isoDate(d);
+    // like real life: some days forgotten, some no-spend days
+    const roll = r();
+    if (roll < 0.1) continue;
+    if (roll < 0.14) {
+      DEMO_NOSPEND.push(date);
+      continue;
+    }
     if (d.d === 1) out.push({ date, type: "Income", category: "", description: "allowance", amounts: { "K-Bank": 7000 }, tab: "demo", row: row++ });
     // a correction every ~10 days, like real bal checks
     if (d.d % 10 === 0) out.push({ date, type: "Expense", category: "Untracked", description: "bal check", amounts: { "K-Bank": -Math.round(80 + r() * 400) }, tab: "demo", row: row++ });
@@ -53,11 +63,14 @@ export function demoData(from: Ymd, to: Ymd): DashData {
   const today = bkkToday();
   const a = isoDate(from);
   const b = isoDate(to);
+  const all = demoTxs(today);
+  const heatStart = addDays(today, -((weekdayOf(today) + 6) % 7) - (HEAT_WEEKS - 1) * 7);
   return {
     today: isoDate(today),
     from: a,
     to: b,
-    txs: demoTxs(today).filter((t) => t.date >= a && t.date <= b),
+    heat: heatFrom(all, heatStart, today, true),
+    txs: all.filter((t) => t.date >= a && t.date <= b),
     categories: [...CATS.map((c) => c[0]), "Untracked"],
     budget: { ...budget },
     balances: [
@@ -71,7 +84,7 @@ export function demoData(from: Ymd, to: Ymd): DashData {
       drift: 350, neverChecked: ["Rabbit"], missPerDay: 39,
     },
     usable: { now: 9401.1, total: 34401.1, perDay30: 405, source: "sheet" },
-    noSpend: [],
+    noSpend: [...DEMO_NOSPEND],
     skipped: [],
     covered: quarterTabsBetween(from, to),
   };

@@ -284,3 +284,65 @@ export function quarterTabsBetween(from: Ymd, to: Ymd): string[] {
 export function covers(covered: string[], from: Ymd, to: Ymd): boolean {
   return quarterTabsBetween(from, to).every((t) => covered.includes(t));
 }
+
+// --- Logging habit ---
+
+export type HeatDays = Record<string, { n: number; spent: number }>;
+
+// A day counts as logged when it has an entry or a `0` (no-spend)
+export function streaks(days: HeatDays, noSpend: string[], from: string, today: Ymd): { current: number; best: number; logged: number; total: number } {
+  const ns = new Set(noSpend);
+  const active = (d: string) => (days[d]?.n ?? 0) > 0 || ns.has(d);
+  const t = isoDate(today);
+  // today still counts as "in progress": a streak survives until today ends
+  let cur = 0;
+  let d = active(t) ? today : addDays(today, -1);
+  while (isoDate(d) >= from && active(isoDate(d))) {
+    cur++;
+    d = addDays(d, -1);
+  }
+  let best = 0;
+  let run = 0;
+  let logged = 0;
+  let total = 0;
+  for (let x = ymd(from); isoDate(x) <= t; x = addDays(x, 1)) {
+    total++;
+    if (active(isoDate(x))) {
+      logged++;
+      best = Math.max(best, ++run);
+    } else run = 0;
+  }
+  return { current: cur, best, logged, total };
+}
+
+// Heat level 0..4 from spend, by quantiles of non-zero days so a few big days don't wash out the rest
+export function heatLevels(days: HeatDays): (spent: number) => number {
+  const vals = Object.values(days).map((d) => d.spent).filter((v) => v > 0).sort((a, b) => a - b);
+  if (!vals.length) return () => 0;
+  const q = (p: number) => vals[Math.max(0, Math.ceil(p * vals.length) - 1)];
+  const cuts = [q(0.25), q(0.5), q(0.75)];
+  return (s) => (s <= 0 ? 0 : 1 + cuts.filter((c) => s > c).length);
+}
+
+const WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+// Average net spend per weekday (Mon first) over the elapsed part of a range
+export function weekdayAverages(txs: Tx[], from: Ymd, to: Ymd): { label: string; avg: number; days: number }[] {
+  const sums = new Array(7).fill(0);
+  const counts = new Array(7).fill(0);
+  for (let d = from; cmp(d, to) <= 0; d = addDays(d, 1)) counts[(weekdayOf(d) + 6) % 7]++;
+  for (const t of txs) {
+    if (!inRange(t, from, to)) continue;
+    sums[(weekdayOf(ymd(t.date)) + 6) % 7] += spentOf([t]);
+  }
+  return WD.map((label, i) => ({ label, avg: counts[i] ? Math.round(sums[i] / counts[i]) : 0, days: counts[i] }));
+}
+
+export function byAccount(txs: Tx[]): { name: string; spent: number }[] {
+  const m = new Map<string, number>();
+  for (const t of txs) {
+    if (t.type !== "Expense") continue;
+    for (const [a, v] of Object.entries(t.amounts)) m.set(a, (m.get(a) ?? 0) - v);
+  }
+  return [...m].map(([name, spent]) => ({ name, spent: Math.round(spent) })).filter((x) => x.spent > 0).sort((a, b) => b.spent - a.spent);
+}

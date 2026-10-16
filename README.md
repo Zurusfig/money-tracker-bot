@@ -52,7 +52,7 @@ What I do now:
 6. **At 21:30 every night, read a short summary on Discord** (a chat app). It shows how many entries I made today, which categories are close to their monthly limit, and which rows still need a category. If I logged nothing and didn't send `0`, it says so.
 7. **Any time, check where I stand.** `bal` shows my *usable* money first (what I can spend day to day, so not savings) and roughly how many days it lasts at my recent pace, then the other accounts and the total. `stats` sends a small dashboard to Discord: spending today, this week and this month, top categories against their limits, and the biggest purchases this week.
 8. **On Sundays, check balances.** The summary lists what the sheet thinks each account holds and which accounts haven't been checked in two weeks. If one is off, I send `bal k 3200` (my real balance). The bot adds one small correction row and tells me how much of that account's spending I actually logged since the last check, e.g. "฿2,100 logged, ฿350 unlogged → 86% captured". `missed` shows the same by month, so I can see whether I'm getting better at logging, and how far off my usable money could be right now.
-9. **For the bigger picture, open the dashboard.** Send `dash` (or tap a menu button) and a page opens inside LINE. It shows charts for a day, week, month, quarter or year, how each category is doing against its budget, account balances, and every transaction. I can change monthly budget targets right there.
+9. **For the bigger picture, open the dashboard.** Send `dash` (or tap a menu button) and a page opens inside LINE. It shows a logging streak with a heat map of which days I logged, charts for a day, week, month, quarter or year, how each category is doing against its budget, account balances, and every transaction. I can change monthly budget targets right there.
 
 <p align="center">
   <img src="docs/images/dashboard.png" alt="Dashboard: spending tiles, spending per day, running total against budget, categories against targets, balances" width="720">
@@ -443,7 +443,11 @@ A page with charts and a budget editor, opened from LINE. Only your LINE account
 The channel can stay in "Developing" mode: as its admin you can still log in. On a computer, the same link opens a LINE login page first.
 
 What it shows:
-- **Time scale:** Day, Week, Month, Quarter, Year, with ‹ › to move back and forward.
+- **Dark by default**, with a light-mode toggle (remembered on the device).
+- **Time scale:** Day, Week, Month, Quarter, Year. Swipe the period name left or right (or use ‹ ›) to move back and forward.
+- **Logging streak and heat map:** one square per day for the last 26 weeks. Darker/brighter = more spent, a check = a `0` no-spend day, an empty outline = nothing logged. Tap any square for that day.
+- **Details sheet:** tap a heat-map day, a bar, or a category and a sheet slides up with its entries. Drag it up for full height, flick it down to close.
+- **Average by weekday** and **Paid from** (spending per account).
 - **Tiles:** spent (vs the same days of the previous period), budget used, income, spend per day, days logged.
 - **Charts:** spending per day/week/month; running total against the budget.
 - **Categories** against their targets for that period (a monthly target spread over its days). Tap one to filter the transactions.

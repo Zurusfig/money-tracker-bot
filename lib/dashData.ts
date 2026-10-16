@@ -1,8 +1,10 @@
-import { quarterTabsBetween, type Tx } from "./dash";
+import { quarterTabsBetween, spentOf, type Tx } from "./dash";
+import { isGapRow } from "./accuracy";
+import type { Accounts } from "./accounts";
 export { quarterTabsBetween };
 import type { SheetsApi } from "./sheets";
 import { ensureBotTabs, readAccounts, readBudgetTab, readLog, setBudgetTarget } from "./state";
-import { bkkToday, isoDate, parseIso, quarterTabName, type Ymd } from "./time";
+import { addDays, bkkToday, isoDate, parseIso, quarterTabName, weekdayOf, type Ymd } from "./time";
 import { buildReport } from "./accuracyReport";
 import { readUsable, recentDailySpend, recentTxs } from "./usable";
 import { TEMPLATE, allRows, readCategories, readQuarter } from "./workbook";
@@ -23,26 +25,18 @@ export type DashData = {
     missPerDay: number;
   };
   noSpend: string[];
+  heat: Heat;
   skipped: string[]; // quarter tabs in an older layout the bot can't read
   covered: string[]; // quarter tabs read successfully
 };
 
 export const MAX_RANGE_DAYS = 800;
+export const HEAT_WEEKS = 26;
 
-export function parseRange(fromS: string | null, toS: string | null): { from: Ymd; to: Ymd } {
-  const from = parseIso(fromS ?? "");
-  const to = parseIso(toS ?? "");
-  if (!from || !to || isoDate(from) > isoDate(to)) throw new Error("Bad date range");
-  const days = (Date.UTC(to.y, to.m - 1, to.d) - Date.UTC(from.y, from.m - 1, from.d)) / 86400000;
-  if (days > MAX_RANGE_DAYS) throw new Error(`Range too long (max ${MAX_RANGE_DAYS} days)`);
-  return { from, to };
-}
+// Logging activity per day for the heat map: entries (corrections excluded) and net spend
+export type Heat = { from: string; to: string; days: Record<string, { n: number; spent: number }>; complete: boolean };
 
-export async function loadDashData(api: SheetsApi, from: Ymd, to: Ymd, now = new Date()): Promise<DashData> {
-  await ensureBotTabs(api);
-  const acc = await readAccounts(api);
-  const today = bkkToday(now);
-  const titles = new Set((await api.listTabs()).map((t) => t.title));
+async function readTxs(api: SheetsApi, acc: Accounts, from: Ymd, to: Ymd, titles: Set<string>) {
   const txs: Tx[] = [];
   const skipped: string[] = [];
   const covered: string[] = [];
@@ -65,6 +59,43 @@ export async function loadDashData(api: SheetsApi, from: Ymd, to: Ymd, now = new
     }
   }
   txs.sort((x, y) => (x.date === y.date ? x.row - y.row : x.date < y.date ? -1 : 1));
+  return { txs, skipped, covered };
+}
+
+export function heatFrom(txs: Tx[], from: Ymd, to: Ymd, complete: boolean): Heat {
+  const days: Heat["days"] = {};
+  for (const t of txs) {
+    if (isGapRow(t) || t.date < isoDate(from) || t.date > isoDate(to)) continue;
+    const d = (days[t.date] ??= { n: 0, spent: 0 });
+    d.n++;
+    d.spent = Math.round((d.spent + spentOf([t])) * 100) / 100;
+  }
+  return { from: isoDate(from), to: isoDate(to), days, complete };
+}
+
+export function parseRange(fromS: string | null, toS: string | null): { from: Ymd; to: Ymd } {
+  const from = parseIso(fromS ?? "");
+  const to = parseIso(toS ?? "");
+  if (!from || !to || isoDate(from) > isoDate(to)) throw new Error("Bad date range");
+  const days = (Date.UTC(to.y, to.m - 1, to.d) - Date.UTC(from.y, from.m - 1, from.d)) / 86400000;
+  if (days > MAX_RANGE_DAYS) throw new Error(`Range too long (max ${MAX_RANGE_DAYS} days)`);
+  return { from, to };
+}
+
+export async function loadDashData(api: SheetsApi, from: Ymd, to: Ymd, now = new Date()): Promise<DashData> {
+  await ensureBotTabs(api);
+  const acc = await readAccounts(api);
+  const today = bkkToday(now);
+  const titles = new Set((await api.listTabs()).map((t) => t.title));
+  const a = isoDate(from);
+  const b = isoDate(to);
+  const { txs, skipped, covered } = await readTxs(api, acc, from, to, titles);
+
+  // Heat map: Monday 25 weeks back through today
+  const heatTo = today;
+  const heatFromDay = addDays(today, -((weekdayOf(today) + 6) % 7) - (HEAT_WEEKS - 1) * 7);
+  const h = await readTxs(api, acc, heatFromDay, heatTo, titles);
+  const heat = heatFrom(h.txs, heatFromDay, heatTo, h.skipped.length === 0 && quarterTabsBetween(heatFromDay, heatTo).every((t) => titles.has(t)));
 
   const current = quarterTabName(today);
   const catTab = titles.has(current) ? current : TEMPLATE;
@@ -92,6 +123,7 @@ export async function loadDashData(api: SheetsApi, from: Ymd, to: Ymd, now = new
     },
     usable: { now: u?.usable ?? 0, total: u?.total ?? 0, perDay30: Math.round(perDay30 * 100) / 100, source: u?.source ?? "default" },
     noSpend: [...new Set(log.filter((l) => l.kind === "nospend").map((l) => l.detail || l.date))],
+    heat,
     skipped,
     covered,
   };
