@@ -109,6 +109,7 @@ export default function Dashboard({ liffId, demo }: { liffId: string; demo: bool
   const [scrolled, setScrolled] = useState(false);
   const cache = useRef(new Map<string, DashData>());
   const sessionTried = useRef(false);
+  const freshNext = useRef(false); // after a save: skip the server's short read cache once
 
   useEffect(() => {
     try {
@@ -133,13 +134,16 @@ export default function Dashboard({ liffId, demo }: { liffId: string; demo: bool
     }
     setStatus((s) => (s === "ready" ? "ready" : "loading"));
     try {
-      let res = await fetch(`/api/dash/data?from=${w.from}&to=${w.to}`, { cache: "no-store" });
+      const fresh = force || freshNext.current;
+      freshNext.current = false;
+      const url = `/api/dash/data?from=${w.from}&to=${w.to}${fresh ? "&fresh=1" : ""}`;
+      let res = await fetch(url, { cache: "no-store" });
       if (res.status === 401 && !demo && !sessionTried.current) {
         sessionTried.current = true;
         const r = await startSession(liffId);
         if (r === "redirect") return;
         if (r === "denied") return setStatus("denied");
-        res = await fetch(`/api/dash/data?from=${w.from}&to=${w.to}`, { cache: "no-store" });
+        res = await fetch(url, { cache: "no-store" });
       }
       if (res.status === 401) return setStatus("denied");
       const json = await res.json();
@@ -545,6 +549,7 @@ export default function Dashboard({ liffId, demo }: { liffId: string; demo: bool
           hasThisMonth={txs.some((t) => t.date.slice(0, 7) === todayS.slice(0, 7)) || isoDate(period.from).slice(0, 7) === todayS.slice(0, 7)}
           onSaved={(cat, target) => {
             cache.current.clear();
+            freshNext.current = true;
             setData({ ...data, budget: Object.fromEntries(Object.entries({ ...data.budget, [cat]: target }).filter(([, v]) => v > 0)) });
           }}
         />

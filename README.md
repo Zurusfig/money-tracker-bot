@@ -421,6 +421,7 @@ If `_Config` doesn't exist, the bot creates it on the first message from your `_
 | `This operation is not supported for this document` | It's still an `.xlsx`. Use **File > Save as Google Sheets** |
 | `has no "X" column (check _Config)` | A `_Config` account name doesn't match the row 18 header |
 | `_Config: ...` | Fix the listed problem in `_Config` (duplicate code, two defaults, ...) |
+| "Quota exceeded for quota metric 'Read requests'" / "Google Sheets is busy" | Google Sheets allows ~60 reads per minute. The bot retries for ~30s first; if it still fails, wait a minute and resend. Happens when using the dashboard heavily while messaging. To raise it: Google Cloud Console > APIs & Services > Google Sheets API > Quotas |
 | "Gemini free quota is used up" (Discord, once a day) | Free quota used up. Typed entries still save (pick categories with buttons), slips must be typed until it resets. If it keeps happening, set `GEMINI_MODEL` to a Flash-Lite model |
 | Changed env vars, no effect | Redeploy on Vercel (or restart `npm run dev` locally) |
 

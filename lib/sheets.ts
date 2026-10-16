@@ -38,6 +38,29 @@ export function colIndex(letters: string): number {
   return n - 1;
 }
 
+// Google Sheets per-minute quota hit even after retrying
+export class SheetsQuotaError extends Error {}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export function isQuotaError(err: unknown): boolean {
+  const e = err as { code?: number | string; status?: number; response?: { status?: number }; message?: string };
+  return e?.code === 429 || e?.status === 429 || e?.response?.status === 429 || /quota exceeded|rate limit/i.test(String(e?.message ?? ""));
+}
+
+// Retries 429s with backoff (2s, 4s, 8s, 16s): the quota is per minute, so waiting usually clears it
+export async function withRetry<T>(fn: () => Promise<T>, delays = [2000, 4000, 8000, 16000]): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isQuotaError(err)) throw err;
+      if (i >= delays.length) throw new SheetsQuotaError(`Google Sheets quota: ${(err as Error).message}`);
+      await sleep(delays[i] + Math.random() * 500);
+    }
+  }
+}
+
 export class GoogleSheets implements SheetsApi {
   private api: sheets_v4.Sheets;
   private tabs: TabInfo[] | null = null;
@@ -54,10 +77,10 @@ export class GoogleSheets implements SheetsApi {
 
   async listTabs(): Promise<TabInfo[]> {
     if (this.tabs) return this.tabs;
-    const res = await this.api.spreadsheets.get({
+    const res = await withRetry(() => this.api.spreadsheets.get({
       spreadsheetId: this.spreadsheetId,
       fields: "sheets.properties(title,sheetId,index,hidden)",
-    });
+    }));
     this.tabs = (res.data.sheets ?? []).map((s) => ({
       title: s.properties!.title!,
       sheetId: s.properties!.sheetId!,
@@ -68,36 +91,36 @@ export class GoogleSheets implements SheetsApi {
   }
 
   async batchGet(ranges: string[], render: Render = "UNFORMATTED_VALUE"): Promise<Cell[][][]> {
-    const res = await this.api.spreadsheets.values.batchGet({
+    const res = await withRetry(() => this.api.spreadsheets.values.batchGet({
       spreadsheetId: this.spreadsheetId,
       ranges,
       valueRenderOption: render,
       dateTimeRenderOption: "SERIAL_NUMBER",
-    });
+    }));
     return (res.data.valueRanges ?? []).map((v) => (v.values ?? []) as Cell[][]);
   }
 
   async update(range: string, values: Cell[][]): Promise<void> {
-    await this.api.spreadsheets.values.update({
+    await withRetry(() => this.api.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
       range,
       valueInputOption: "USER_ENTERED",
       requestBody: { values },
-    });
+    }));
   }
 
   async append(range: string, values: Cell[][]): Promise<void> {
-    await this.api.spreadsheets.values.append({
+    await withRetry(() => this.api.spreadsheets.values.append({
       spreadsheetId: this.spreadsheetId,
       range,
       valueInputOption: "USER_ENTERED",
       insertDataOption: "INSERT_ROWS",
       requestBody: { values },
-    });
+    }));
   }
 
   async clear(range: string): Promise<void> {
-    await this.api.spreadsheets.values.clear({ spreadsheetId: this.spreadsheetId, range });
+    await withRetry(() => this.api.spreadsheets.values.clear({ spreadsheetId: this.spreadsheetId, range }));
   }
 
   private async sheetId(title: string): Promise<number> {
@@ -107,7 +130,7 @@ export class GoogleSheets implements SheetsApi {
   }
 
   private async batchUpdate(requests: sheets_v4.Schema$Request[]) {
-    await this.api.spreadsheets.batchUpdate({ spreadsheetId: this.spreadsheetId, requestBody: { requests } });
+    await withRetry(() => this.api.spreadsheets.batchUpdate({ spreadsheetId: this.spreadsheetId, requestBody: { requests } }));
     this.tabs = null;
   }
 
@@ -148,11 +171,62 @@ export function withReadCache(api: SheetsApi): SheetsApi {
     clear();
   };
   return {
-    listTabs: () => (tabs ??= api.listTabs()),
+    listTabs: () => {
+      if (!tabs) {
+        tabs = api.listTabs();
+        tabs.catch(() => (tabs = null));
+      }
+      return tabs;
+    },
     batchGet: (ranges, render = "UNFORMATTED_VALUE") => {
       const key = JSON.stringify([ranges, render]);
-      if (!reads.has(key)) reads.set(key, api.batchGet(ranges, render));
+      if (!reads.has(key)) {
+        const p = api.batchGet(ranges, render);
+        reads.set(key, p);
+        p.catch(() => reads.delete(key)); // don't keep failures
+      }
       return reads.get(key)!;
+    },
+    update: write(api.update.bind(api)),
+    append: write(api.append.bind(api)),
+    clear: write(api.clear.bind(api)),
+    addSheet: write(api.addSheet.bind(api)),
+    duplicateSheet: write(api.duplicateSheet.bind(api)),
+    insertRows: write(api.insertRows.bind(api)),
+  };
+}
+
+// Read cache shared across requests on a warm server (dashboard only: a few seconds stale is fine there,
+// never for the webhook, which must see its own writes). Writes through this wrapper clear it.
+const shared = new Map<string, { at: number; p: Promise<Cell[][][]> }>();
+let sharedTabs: { at: number; p: Promise<TabInfo[]> } | null = null;
+
+export function clearSharedCache() {
+  shared.clear();
+  sharedTabs = null;
+}
+
+export function withSharedCache(api: SheetsApi, ttlMs = 30000): SheetsApi {
+  const fresh = (at: number) => Date.now() - at < ttlMs;
+  const write = <A extends unknown[]>(fn: (...a: A) => Promise<void>) => async (...a: A) => {
+    clearSharedCache();
+    await fn(...a);
+    clearSharedCache();
+  };
+  return {
+    listTabs: () => {
+      if (!sharedTabs || !fresh(sharedTabs.at)) sharedTabs = { at: Date.now(), p: api.listTabs() };
+      sharedTabs.p.catch(() => (sharedTabs = null));
+      return sharedTabs.p;
+    },
+    batchGet: (ranges, render = "UNFORMATTED_VALUE") => {
+      const key = JSON.stringify([ranges, render]);
+      const hit = shared.get(key);
+      if (hit && fresh(hit.at)) return hit.p;
+      const p = api.batchGet(ranges, render);
+      shared.set(key, { at: Date.now(), p });
+      p.catch(() => shared.delete(key));
+      return p;
     },
     update: write(api.update.bind(api)),
     append: write(api.append.bind(api)),

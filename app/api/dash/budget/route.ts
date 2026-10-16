@@ -2,7 +2,7 @@ import { config } from "@/lib/config";
 import { isAuthorized } from "@/lib/dashAuth";
 import { saveBudget } from "@/lib/dashData";
 import { demoSaveBudget } from "@/lib/dashDemo";
-import { GoogleSheets } from "@/lib/sheets";
+import { GoogleSheets, clearSharedCache } from "@/lib/sheets";
 
 export const runtime = "nodejs";
 
@@ -16,6 +16,7 @@ export async function PUT(req: Request) {
   try {
     if (config.dashDemo) demoSaveBudget(cat, t);
     else await saveBudget(new GoogleSheets(), cat, t);
+    clearSharedCache();
     return Response.json({ ok: true });
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : "failed" }, { status: 500 });

@@ -7,7 +7,7 @@ import { buildStats } from "./stats";
 import { accuracyOf, lastChecked } from "./accuracy";
 import { buildReport, checkLine, reportText } from "./accuracyReport";
 import { readUsable, recentDailySpend, recentTxs, runwayText, type BalanceLine } from "./usable";
-import type { Cell, SheetsApi } from "./sheets";
+import { SheetsQuotaError, type Cell, type SheetsApi } from "./sheets";
 import {
   addCheck, ensureBotTabs, lastLiveWrite, log, matchCategoryName, readChecks, matchOwnAccount, matchRule,
   readAccounts, readLog, readOwnAccounts, readRules, saveRule,
@@ -122,9 +122,14 @@ export async function handleEvent(d: Deps, ev: LineEvent, ownerId: string): Prom
     else if (ev.type === "postback" && ev.postback) reply = await onPostback(c, ev.postback.data);
     else return;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await reportError(d, `webhook ${ev.type}`, msg);
-    reply = [text("Error, nothing was logged. Details sent to Discord.")];
+    if (err instanceof SheetsQuotaError) {
+      await reportSheetsQuota(d);
+      reply = [text("Google Sheets is busy (too many requests this minute). Wait a minute and send it again. If it ends up logged twice, send undo.")];
+    } else {
+      const msg = err instanceof Error ? err.message : String(err);
+      await reportError(d, `webhook ${ev.type}`, msg);
+      reply = [text("Error, nothing was logged. Details sent to Discord.")];
+    }
   }
   try {
     await d.line.reply(ev.replyToken, reply);
@@ -132,6 +137,22 @@ export async function handleEvent(d: Deps, ev: LineEvent, ownerId: string): Prom
     // Redelivered events carry expired reply tokens; nothing else to do.
     console.error(err);
   }
+}
+
+// Sheets per-minute quota: at most one Discord alert per hour per server instance
+// (no sheet read here: the sheet is what's rate-limited)
+let lastSheetsQuotaAlert = 0;
+export async function reportSheetsQuota(d: Deps) {
+  if (Date.now() - lastSheetsQuotaAlert < 3600000) return;
+  lastSheetsQuotaAlert = Date.now();
+  await d.notify.post(
+    "⚠️ Google Sheets per-minute read limit hit (60 reads/min). The bot retried for ~30s, then gave up on one message. " +
+      "Usually from opening the dashboard and messaging at the same time. It recovers by itself within a minute.",
+  ).catch(() => {});
+}
+
+export function resetQuotaAlerts() {
+  lastSheetsQuotaAlert = 0;
 }
 
 // One Discord alert per day when the Gemini quota runs out, not one per message
